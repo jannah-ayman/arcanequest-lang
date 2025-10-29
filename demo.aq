@@ -1,0 +1,65 @@
+summon random, sys  --> for random rolls and exiting app
+
+playerHealth = 100
+playerDamage = 15.5
+playerName = ""
+hasSword = false
+
+playerName = scout("Enter your hero's name: ")
+choice = scout("Fight dragon (1) or flee (2)? ")
+
+
+ambush choice:
+    case "1": 
+        hasSword = true
+        attack(playerName + " draws sword!")
+    case "2": attack(playerName + " flees!")
+        attack("Quest abandoned – live another day.")
+        sys.exit(0)  --> Clean exit
+    case _: 
+        attack("Invalid – fighting with bare fists!")
+
+
+quest calculateStrike(baseDmg, enemyArmor):
+    embark:
+        modDmg = baseDmg / enemyArmor
+    savePoint:
+        modDmg = baseDmg * 0.5
+    gameOver ZeroDivisionError:
+    attack("Error – dragon wins!") 
+
+    reward modDmg  --> Function return
+
+
+
+dragonHealth = 80
+dragonArmor = 5
+
+
+replay (playerHealth > 0 and dragonHealth > 0):
+    spot (not hasSword):
+        playerDamage = 5.0
+        attack(playerName + " punches weakly!")
+    dodge:
+        attack(playerName + " strikes with sword!")
+
+    --> Player turn
+    strikeDmg = calculateStrike(playerDamage, dragonArmor)
+    dragonHealth -= strikeDmg
+    attack("Dealt " + scroll(strikeDmg) + "! Dragon: " + dragonHealth)
+
+    --> Dragon counter if alive
+    spot (dragonHealth > 0)
+        counterDmg = random.randint(10, 20)
+        playerHealth -= counterDmg
+        attack("Dragon hits " + scroll(counterDmg) + "! Health: " + scroll(playerHealth))
+
+    --> Win check
+    spot (dragonHealth <= 0):
+        attack("Dragon slain! Victory for " + playerName + "!")
+
+
+spot (playerHealth <= 0):
+    attack("You fall in defeat!")
+dodge:
+    attack("Quest ends – final health: " + scroll(playerHealth))
