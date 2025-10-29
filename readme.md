@@ -30,7 +30,7 @@ It highlights and identifies tokens (keywords, strings, numbers, etc.) in `.aq` 
 4. Run the program:
 
    ```bash
-   python arcanequest_scanner.py
+   python scanner.py
    ```
 
 ---
