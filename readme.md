@@ -18,7 +18,7 @@ It highlights and identifies tokens (keywords, strings, numbers, etc.) in `.aq` 
 
 ---
 
-## ⚙️ Installation
+## Installation
 
 1. Make sure you have **Python 3.8+** installed.
 2. Clone or download this repository.
@@ -35,7 +35,7 @@ It highlights and identifies tokens (keywords, strings, numbers, etc.) in `.aq` 
 
 ---
 
-## 🧩 How It Works
+## How It Works
 
 * **`TOKENS`**: Defines all custom keywords and their Python equivalents.
 * **Regex-based tokenizer**: Breaks code into components like identifiers, numbers, operators, etc.
@@ -47,7 +47,7 @@ It highlights and identifies tokens (keywords, strings, numbers, etc.) in `.aq` 
 
 ---
 
-## 🧱 File Types
+## File Types
 
 * `.aq` → ArcaneQuest source file
 
