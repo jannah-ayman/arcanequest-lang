@@ -43,6 +43,7 @@ def scan_source(source_text):
     lines = source_text.splitlines()
     tokens = []
     indent_stack = [0]
+    indent_unit = None  # Will be set on first indent (e.g., 4 spaces or 1 tab)
     line_no = 0
 
     for raw_line in lines:
@@ -56,12 +57,23 @@ def scan_source(source_text):
 
         ws_match = _RE_WS.match(line)
         leading_ws = ws_match.group(0) if ws_match else ""
-        leading_spaces = leading_ws.replace("\t", " " * 8)
+        leading_spaces = leading_ws.replace("\t", "    ")  # Convert tabs to 4 spaces
         indent_len = len(leading_spaces)
         stripped = line[len(leading_ws):]
 
         # INDENT / DEDENT handling
         if indent_len > indent_stack[-1]:
+            # Increasing indentation
+            indent_increase = indent_len - indent_stack[-1]
+            
+            # Set the indent unit on first indent
+            if indent_unit is None:
+                indent_unit = indent_increase
+            
+            # Check if the indent is a valid multiple of the indent unit
+            if indent_increase != indent_unit:
+                tokens.append(make_token(TOKEN_UNKNOWN, f"IndentationError: inconsistent indent (expected {indent_unit} spaces)", line_no, 0))
+            
             indent_stack.append(indent_len)
             tokens.append(make_token(TOKEN_INDENT, indent_len, line_no, 0))
         else:
@@ -69,7 +81,7 @@ def scan_source(source_text):
                 indent_stack.pop()
                 tokens.append(make_token(TOKEN_DEDENT, "DEDENT", line_no, 0))
             if indent_len != indent_stack[-1]:
-                tokens.append(make_token(TOKEN_UNKNOWN, f"IndentationError", line_no, 0))
+                tokens.append(make_token(TOKEN_UNKNOWN, f"IndentationError: unindent does not match any outer indentation level", line_no, 0))
 
         # tokenize the content of the line
         col = len(leading_ws)
