@@ -1,200 +1,232 @@
 import re
-import tkinter as tk
-from tkinter import filedialog, scrolledtext
 
-TOKENS = {
-    "attack": "print",
-    "scout": "input",
-    "spot": "if",
-    "dodge": "else",
-    "counter": "elif",
-    "ambush": "match",
-    "quest": "def",
-    "reward": "return",
-    "farm": "for",
-    "replay": "while",
-    "guild": "class",
-    "spawn": "__init__",
-    "embark": "try",
-    "gameOver": "except",
-    "savePoint": "finally",
-    "summon": "import",
-    "skipEncounter": "continue",
-    "escapeDungeon": "break",
-    "this": "self",
-    "case": "case",
-    "potion": "int",
-    "elixir": "float",
-    "scroll": "str",
-    "fate": "bool",
-    "true": "True",
-    "false": "False",
-    "_": "_"
+ARCANE_KEYWORDS = {
+    "summon", "quest", "reward", "attack", "scout", "spot", "dodge", "counter",
+    "ambush", "farm", "replay", "guild", "spawn", "embark", "gameOver",
+    "savePoint", "skipEncounter", "escapeDungeon", "case",
+}
+ARCANE_DATATYPES = {"potion", "elixir", "fate"}
+ARCANE_BUILTIN_FUNCTIONS = {"scroll"}
+ARCANE_BUILTIN_LITERALS = {"true", "false"}
+ARCANE_OPERATORS = {"and", "or", "not"}
+MULTI_CHAR_OPS = {"<=", ">=", "==", "!=", "+=", "-=", "*=", "/="}
+SINGLE_CHAR_PUNCT = {
+    "(", ")", "{", "}", ":", ",", "+", "-", "*", "/", "<", ">", "=", ".", "[", "]"
 }
 
-# Operators
-OPERATORS = {
-    "and": "and",
-    "or": "or",
-    "not": "not",
-    "+": "plus",
-    "-": "minus",
-    "*": "multiply",
-    "/": "divide",
-    "%": "modulus",
-    "**": "power",
-    "==": "equal",
-    "!=": "not_equal",
-    "<": "less_than",
-    ">": "greater_than",
-    "<=": "less_equal",
-    ">=": "greater_equal",
-    "=": "assign",
-}
+TOKEN_EOF = "EOF"
+TOKEN_NEWLINE = "NEWLINE"
+TOKEN_INDENT = "INDENT"
+TOKEN_DEDENT = "DEDENT"
+TOKEN_COMMENT = "COMMENT"
+TOKEN_KEYWORD = "KEYWORD"
+TOKEN_DATATYPE = "DATATYPE"
+TOKEN_LITERAL = "LITERAL"
+TOKEN_IDENTIFIER = "IDENTIFIER"
+TOKEN_NUMBER = "NUMBER"
+TOKEN_STRING = "STRING"
+TOKEN_OPERATOR = "OPERATOR"
+TOKEN_PUNCT = "PUNCT"
+TOKEN_UNKNOWN = "UNKNOWN"
 
-# Token specification
-token_specification = [
-    ('comment', r'-->.*'),
-    ('multiline_string', r'("""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\')'),
-    ('string', r'"([^"\\]|\\.)*"|\'([^\'\\]|\\.)*\''), 
-    ('number', r'-?[0-9]+(\.[0-9]+)?'),
-    ('operator', r'\b(?:and|or|not)\b|<=|>=|==|!=|\*\*|[+\-*/%<>]'),
-    ('assign', r'='), 
-    ('lparen', r'\('), 
-    ('rparen', r'\)'), 
-    ('colon', r':'), 
-    ('comma', r','),
-    ('identifier', r'[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*'),
-    ('skip', r'[ \t]+'),
-    ('token_mismatch', r'.'),
-]
+_RE_NUMBER = re.compile(r"^\d+(\.\d+)?")
+_RE_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*")
+_RE_STRING = re.compile(r"^\"([^\"\\]|\\.)*\"")
+_RE_WS = re.compile(r"^[ \t]+")
+_RE_COMMENT = re.compile(r"^-->(.*)")
 
-# Build regex
-tok_regex = '|'.join(f'(?P<{name}>{regex})' for name, regex in token_specification)
-token_re = re.compile(tok_regex)
 
-# Tokenizer
-def tokenize_with_indents(code):
-    lines = code.splitlines()
+def make_token(t_type, value, lineno, col):
+    return {"type": t_type, "value": value, "lineno": lineno, "col": col}
+
+def scan_source(source_text):
+    lines = source_text.splitlines()
     tokens = []
     indent_stack = [0]
+    line_no = 0
 
-    for line in lines:
-        if not line.strip():
+    for raw_line in lines:
+        line_no += 1
+        line = raw_line.rstrip("\n\r")
+
+        # blank lines: emit NEWLINE only
+        if line.strip() == "":
+            tokens.append(make_token(TOKEN_NEWLINE, "\\n", line_no, 0))
             continue
 
-        indent_level = len(line) - len(line.lstrip(' '))
-        content = line.lstrip(' ')
+        ws_match = _RE_WS.match(line)
+        leading_ws = ws_match.group(0) if ws_match else ""
+        leading_spaces = leading_ws.replace("\t", " " * 8)
+        indent_len = len(leading_spaces)
+        stripped = line[len(leading_ws):]
 
-        while indent_level > indent_stack[-1]:
-            indent_stack.append(indent_level)
-            tokens.append(("INDENT", "indent"))
-        while indent_level < indent_stack[-1]:
-            indent_stack.pop()
-            tokens.append(("DEDENT", "dedent"))
+        # INDENT / DEDENT handling
+        if indent_len > indent_stack[-1]:
+            indent_stack.append(indent_len)
+            tokens.append(make_token(TOKEN_INDENT, indent_len, line_no, 0))
+        else:
+            while indent_len < indent_stack[-1]:
+                indent_stack.pop()
+                tokens.append(make_token(TOKEN_DEDENT, "DEDENT", line_no, 0))
+            if indent_len != indent_stack[-1]:
+                tokens.append(make_token(TOKEN_UNKNOWN, f"IndentationError", line_no, 0))
 
-        pos = 0
-        while pos < len(content):
-            match = token_re.match(content, pos)
-            if not match:
-                break
-            kind, value = match.lastgroup, match.group()
-            pos = match.end()
+        # tokenize the content of the line
+        col = len(leading_ws)
+        content = stripped
+        comment_search = re.search(r"-->", content)
+        comment_text = None
+        if comment_search:
+            idx = comment_search.start()
+            comment_text = content[idx + 3 :]
+            content_to_tokenize = content[:idx]
+        else:
+            content_to_tokenize = content
 
-            if kind == 'skip':
+        s = content_to_tokenize
+        while s:
+            # skip whitespace inside line
+            if s[0].isspace():
+                ws_m = _RE_WS.match(s)
+                span = len(ws_m.group(0)) if ws_m else 1
+                col += span
+                s = s[span:]
                 continue
-            elif kind == 'comment':
-                tokens.append((value, "comment"))
-                break
-            elif kind == 'identifier':
-                tokens.append((value, TOKENS.get(value, "identifier")))
-            elif kind == 'operator':
-                tokens.append((value, OPERATORS.get(value, "operator")))
-            else:
-                tokens.append((value, kind))
 
+            # multi-char operators
+            matched = False
+            for op in sorted(MULTI_CHAR_OPS, key=lambda x: -len(x)):
+                if s.startswith(op):
+                    tokens.append(make_token(TOKEN_OPERATOR, op, line_no, col))
+                    col += len(op)
+                    s = s[len(op):]
+                    matched = True
+                    break
+            if matched:
+                continue
+
+            # single-character punctuation
+            ch = s[0]
+            if ch in SINGLE_CHAR_PUNCT:
+                tokens.append(make_token(TOKEN_PUNCT, ch, line_no, col))
+                col += 1
+                s = s[1:]
+                continue
+
+            # string literal
+            m = _RE_STRING.match(s)
+            if m:
+                lit = m.group(0)
+                tokens.append(make_token(TOKEN_STRING, lit, line_no, col))
+                col += len(lit)
+                s = s[len(lit):]
+                continue
+
+            # number
+            m = _RE_NUMBER.match(s)
+            if m:
+                num = m.group(0)
+                tokens.append(make_token(TOKEN_NUMBER, num, line_no, col))
+                col += len(num)
+                s = s[len(num):]
+                continue
+
+            # identifier / keyword / datatype / literal / operator words
+            m = _RE_IDENTIFIER.match(s)
+            if m:
+                ident = m.group(0)
+                lower_ident = ident
+                if lower_ident in ARCANE_KEYWORDS:
+                    tokens.append(make_token(TOKEN_KEYWORD, lower_ident, line_no, col))
+                elif lower_ident in ARCANE_DATATYPES:
+                    tokens.append(make_token(TOKEN_DATATYPE, lower_ident, line_no, col))
+                elif lower_ident in ARCANE_BUILTIN_FUNCTIONS:
+                    tokens.append(make_token(TOKEN_IDENTIFIER, lower_ident, line_no, col))
+                elif lower_ident in ARCANE_BUILTIN_LITERALS:
+                    tokens.append(make_token(TOKEN_LITERAL, lower_ident, line_no, col))
+                elif lower_ident in ARCANE_OPERATORS:
+                    tokens.append(make_token(TOKEN_OPERATOR, lower_ident, line_no, col))
+                else:
+                    tokens.append(make_token(TOKEN_IDENTIFIER, ident, line_no, col))
+                col += len(ident)
+                s = s[len(ident):]
+                continue
+
+            # unknown single char
+            tokens.append(make_token(TOKEN_UNKNOWN, s[0], line_no, col))
+            s = s[1:]
+            col += 1
+
+        # append comment token if present
+        if comment_text is not None:
+            tokens.append(make_token(TOKEN_COMMENT, comment_text.strip(), line_no, col))
+        # end of logical line
+        tokens.append(make_token(TOKEN_NEWLINE, "\\n", line_no, len(raw_line)))
+
+    # unwind dedents to 0
     while len(indent_stack) > 1:
         indent_stack.pop()
-        tokens.append(("DEDENT", "dedent"))
+        tokens.append(make_token(TOKEN_DEDENT, "DEDENT", line_no + 1, 0))
 
+    tokens.append(make_token(TOKEN_EOF, "EOF", line_no + 1, 0))
     return tokens
 
 
-# GUI
-class ArcaneQuestGUI:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("ArcaneQuest Scanner")
-        self.root.geometry("900x700")
-        self.root.configure(bg="#0a0a0a")
-
-        text_cfg = dict(wrap=tk.WORD, width=100, font=("Consolas", 11), insertbackground="white")
-        self.text_area = scrolledtext.ScrolledText(root, height=15, bg="#1e1e1e", fg="#d4d4d4", **text_cfg)
-        self.output_area = scrolledtext.ScrolledText(root, height=25, bg="#000000", fg="#00ff00", **text_cfg)
-
-        self.text_area.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
-
-        frame = tk.Frame(root, bg="#0a0a0a")
-        frame.pack(pady=5)
-        for text, cmd, bg, font in [
-            ("Open .aq File", self.open_file, "#2d5e2d", ("Arial", 10)),
-            ("Scan Code", self.run_scanner, "#0066cc", ("Arial", 10, "bold"))
-        ]:
-            tk.Button(frame, text=text, command=cmd, bg=bg, fg="white", font=font).pack(side=tk.LEFT, padx=5)
-
-        self.output_area.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
-        self.setup_tags()
-
-    def setup_tags(self):
-        tags = [
-            ("keyword", "#ffd700"),
-            ("string", "#98fb98"),
-            ("number", "#22bb0e"),
-            ("operator", "#ff99cc"),
-            ("indent", "#87cefa"),
-            ("comment", "#808080"),
-            ("token_mismatch", "#ff0000"),
-            ("default", "#f7f7f7"),
-            ("header", "#00ffff", {"font": ("Consolas", 11, "bold")}),
-        ]
-        for tag, color, *extra in tags:
-            self.output_area.tag_config(tag, foreground=color, **(extra[0] if extra else {}))
-
-    def open_file(self):
-        path = filedialog.askopenfilename(filetypes=[("ArcaneQuest Files", "*.aq")])
-        if path:
-            with open(path, "r", encoding="utf-8") as f:
-                self.text_area.delete("1.0", tk.END)
-                self.text_area.insert(tk.END, f.read())
-
-    def run_scanner(self):
-        code = self.text_area.get("1.0", tk.END)
-        try:
-            tokens = tokenize_with_indents(code)
-            self.output_area.delete("1.0", tk.END)
-            self.output_area.insert(tk.END, "ArcaneQuest Scanner Output:\n\n", "header")
-
-            for value, meaning in tokens:
-                if meaning in TOKENS.values() and meaning != "identifier":
-                    tag = "keyword"
-                elif meaning in OPERATORS.values():
-                    tag = "operator"
-                elif meaning == "dedent":
-                    tag = "indent"
-                elif meaning in {"string", "number", "indent", "comment", "token_mismatch"}:
-                    tag = meaning
-                else:
-                    tag = "default"
-
-                self.output_area.insert(tk.END, f"{value:<25} → {meaning}\n", tag)
-
-        except Exception as e:
-            self.output_area.delete("1.0", tk.END)
-            self.output_area.insert(tk.END, f"ERROR: {e}", "token_mismatch")
-
-
-# MAIN ENTRY
-if __name__ == "__main__":
-    root = tk.Tk()
-    ArcaneQuestGUI(root)
-    root.mainloop()
+# ==========================================================
+# Utility: pretty print tokens for scanner UI
+# ==========================================================
+def tokens_to_pretty_lines(tokens):
+    lines = []
+    for tok in tokens:
+        ttype = tok["type"]
+        val = tok["value"]
+        lineno = tok.get("lineno", "?")
+        if ttype == TOKEN_NEWLINE:
+            continue
+        if ttype == TOKEN_INDENT:
+            lines.append(("INDENT", str(val), lineno))
+            continue
+        if ttype == TOKEN_DEDENT:
+            lines.append(("DEDENT", str(val), lineno))
+            continue
+        if ttype == TOKEN_EOF:
+            continue
+        descriptor = ""
+        if ttype == TOKEN_KEYWORD:
+            descriptor = "keyword"
+        elif ttype == TOKEN_DATATYPE:
+            descriptor = "datatype"
+        elif ttype == TOKEN_LITERAL:
+            descriptor = "literal"
+        elif ttype == TOKEN_IDENTIFIER:
+            descriptor = "identifier"
+        elif ttype == TOKEN_NUMBER:
+            descriptor = "number"
+        elif ttype == TOKEN_STRING:
+            descriptor = "string"
+        elif ttype == TOKEN_OPERATOR:
+            descriptor = "operator"
+        elif ttype == TOKEN_PUNCT:
+            punct_map = {
+                ",": "comma", ":": "colon", "=": "assign", ".": "dot",
+                "(": "lparen", ")": "rparen", "{": "lbrace", "}": "rbrace",
+                "+": "plus", "-": "minus", "*": "star", "/": "slash",
+                "<": "lt", ">": "gt", "<=": "lte", ">=": "gte", "==": "eq", "!=": "neq",
+            }
+            descriptor = punct_map.get(val, "punct")
+        elif ttype == TOKEN_COMMENT:
+            descriptor = "comment"
+        elif ttype == TOKEN_UNKNOWN:
+            descriptor = "unknown"
+        else:
+            descriptor = ttype.lower()
+        lines.append((val, descriptor, lineno))
+    pretty = []
+    maxlen = 0
+    for v, d, ln in lines:
+        vstr = str(v)
+        if len(vstr) > maxlen:
+            maxlen = len(vstr)
+    for v, d, ln in lines:
+        pretty.append(f"{str(v).ljust(maxlen)}    → {d}    (line {ln})")
+    return "\n".join(pretty)

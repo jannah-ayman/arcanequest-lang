@@ -8,33 +8,26 @@ hasSword = false
 playerName = scout("Enter your hero's name: ")
 choice = scout("Fight dragon (1) or flee (2)? ")
 
-
-ambush choice:
-    case "1": 
-        hasSword = true
-        attack(playerName + " draws sword!")
-    case "2": attack(playerName + " flees!")
-        attack("Quest abandoned – live another day.")
-        sys.exit(0)  --> Clean exit
-    case _: 
-        attack("Invalid – fighting with bare fists!")
-
+spot (choice == "1"):
+    hasSword = true
+    attack(playerName + " draws sword!")
+counter (choice == "2"):
+    attack("Quest abandoned – live another day.")
+    sys.exit(0)  --> Clean exit
+dodge:
+    attack("Invalid – fighting with bare fists!")
 
 quest calculateStrike(baseDmg, enemyArmor):
     embark:
         modDmg = baseDmg / enemyArmor
+    gameOver ZeroDivisionError:
+        attack("Error – dragon wins!")
     savePoint:
         modDmg = baseDmg * 0.5
-    gameOver ZeroDivisionError:
-    attack("Error – dragon wins!") 
-
     reward modDmg  --> Function return
-
-
 
 dragonHealth = 80
 dragonArmor = 5
-
 
 replay (playerHealth > 0 and dragonHealth > 0):
     spot (not hasSword):
@@ -45,11 +38,11 @@ replay (playerHealth > 0 and dragonHealth > 0):
 
     --> Player turn
     strikeDmg = calculateStrike(playerDamage, dragonArmor)
-    dragonHealth -= strikeDmg
+    dragonHealth = dragonHealth - strikeDmg
     attack("Dealt " + scroll(strikeDmg) + "! Dragon: " + dragonHealth)
 
     --> Dragon counter if alive
-    spot (dragonHealth > 0)
+    spot (dragonHealth > 0):
         counterDmg = random.randint(10, 20)
         playerHealth -= counterDmg
         attack("Dragon hits " + scroll(counterDmg) + "! Health: " + scroll(playerHealth))
@@ -57,7 +50,6 @@ replay (playerHealth > 0 and dragonHealth > 0):
     --> Win check
     spot (dragonHealth <= 0):
         attack("Dragon slain! Victory for " + playerName + "!")
-
 
 spot (playerHealth <= 0):
     attack("You fall in defeat!")
