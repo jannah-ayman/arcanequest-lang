@@ -2,52 +2,71 @@ import re
 import tkinter as tk
 from tkinter import filedialog, scrolledtext
 
-# Core Keywords
 TOKENS = {
-    "attack": "print", 
-    "scout": "input", 
-    "spot": "if", 
-    "dodge": "else", 
+    "attack": "print",
+    "scout": "input",
+    "spot": "if",
+    "dodge": "else",
     "counter": "elif",
-    "ambush": "match", 
-    "quest": "def", 
-    "reward": "return", 
-    "farm": "for", 
+    "ambush": "match",
+    "quest": "def",
+    "reward": "return",
+    "farm": "for",
     "replay": "while",
-    "guild": "class", 
-    "spawn": "__init__", 
-    "embark": "try", 
+    "guild": "class",
+    "spawn": "__init__",
+    "embark": "try",
     "gameOver": "except",
-    "savePoint": "finally", 
-    "summon": "import", 
+    "savePoint": "finally",
+    "summon": "import",
     "skipEncounter": "continue",
-    "escapeDungeon": "break", 
-    "this": "self", 
-    "case": "case", 
+    "escapeDungeon": "break",
+    "this": "self",
+    "case": "case",
     "potion": "int",
-    "elixir": "float", 
-    "scroll": "str", 
-    "fate": "bool", 
-    "true": "True", 
-    "false": "False", 
+    "elixir": "float",
+    "scroll": "str",
+    "fate": "bool",
+    "true": "True",
+    "false": "False",
     "_": "_"
+}
+
+# Operators
+OPERATORS = {
+    "and": "and",
+    "or": "or",
+    "not": "not",
+    "+": "plus",
+    "-": "minus",
+    "*": "multiply",
+    "/": "divide",
+    "%": "modulus",
+    "**": "power",
+    "==": "equal",
+    "!=": "not_equal",
+    "<": "less_than",
+    ">": "greater_than",
+    "<=": "less_equal",
+    ">=": "greater_equal",
+    "=": "assign",
 }
 
 # Token specification
 token_specification = [
-    ('comment', r'-->.+'),                                          
+    ('comment', r'-->.*'),
     ('multiline_string', r'("""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\')'),
-    ('string', r'"([^"\\]|\\.)*"|\'([^\'\\]|\\.)*\''),              
-    ('number', r'-?[0-9]+(\.[0-9]+)?'),                             
-    ('operator', r'\b(?:and|or|not)\b|<=|>=|==|!=|\*\*|[+\-*/%<>!]=?'),   
+    ('string', r'"([^"\\]|\\.)*"|\'([^\'\\]|\\.)*\''), 
+    ('number', r'-?[0-9]+(\.[0-9]+)?'),
+    ('operator', r'\b(?:and|or|not)\b|<=|>=|==|!=|\*\*|[+\-*/%<>]'),
     ('assign', r'='), 
     ('lparen', r'\('), 
     ('rparen', r'\)'), 
     ('colon', r':'), 
     ('comma', r','),
-    ('identifier', r'[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*'),   
-    ('skip', r'[ \t]+'), 
-    ('token_mismatch', r'.'),             
+    ('identifier', r'[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*'),
+    ('skip', r'[ \t]+'),
+    ('token_mismatch', r'.'),
 ]
 
 # Build regex
@@ -77,17 +96,20 @@ def tokenize_with_indents(code):
         pos = 0
         while pos < len(content):
             match = token_re.match(content, pos)
+            if not match:
+                break
             kind, value = match.lastgroup, match.group()
             pos = match.end()
 
             if kind == 'skip':
                 continue
-            if kind == 'comment':
+            elif kind == 'comment':
                 tokens.append((value, "comment"))
                 break
-            if kind == 'identifier':
+            elif kind == 'identifier':
                 tokens.append((value, TOKENS.get(value, "identifier")))
-
+            elif kind == 'operator':
+                tokens.append((value, OPERATORS.get(value, "operator")))
             else:
                 tokens.append((value, kind))
 
@@ -96,6 +118,7 @@ def tokenize_with_indents(code):
         tokens.append(("DEDENT", "dedent"))
 
     return tokens
+
 
 # GUI
 class ArcaneQuestGUI:
@@ -124,9 +147,15 @@ class ArcaneQuestGUI:
 
     def setup_tags(self):
         tags = [
-            ("keyword", "#ffd700"), ("string", "#98fb98"), ("number", "#22bb0e"),
-            ("operator", "#ff99cc"), ("indent", "#87cefa"), ("comment", "#808080"),
-            ("token_mismatch", "#ff0000"), ("default", "#f7f7f7"), ("header", "#00ffff", {"font": ("Consolas", 11, "bold")})
+            ("keyword", "#ffd700"),
+            ("string", "#98fb98"),
+            ("number", "#22bb0e"),
+            ("operator", "#ff99cc"),
+            ("indent", "#87cefa"),
+            ("comment", "#808080"),
+            ("token_mismatch", "#ff0000"),
+            ("default", "#f7f7f7"),
+            ("header", "#00ffff", {"font": ("Consolas", 11, "bold")}),
         ]
         for tag, color, *extra in tags:
             self.output_area.tag_config(tag, foreground=color, **(extra[0] if extra else {}))
@@ -148,9 +177,11 @@ class ArcaneQuestGUI:
             for value, meaning in tokens:
                 if meaning in TOKENS.values() and meaning != "identifier":
                     tag = "keyword"
+                elif meaning in OPERATORS.values():
+                    tag = "operator"
                 elif meaning == "dedent":
                     tag = "indent"
-                elif meaning in {"string", "number", "operator", "indent", "comment", "token_mismatch"}:
+                elif meaning in {"string", "number", "indent", "comment", "token_mismatch"}:
                     tag = meaning
                 else:
                     tag = "default"
@@ -160,6 +191,7 @@ class ArcaneQuestGUI:
         except Exception as e:
             self.output_area.delete("1.0", tk.END)
             self.output_area.insert(tk.END, f"ERROR: {e}", "token_mismatch")
+
 
 # MAIN ENTRY
 if __name__ == "__main__":
