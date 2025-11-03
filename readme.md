@@ -53,13 +53,10 @@ python gui.py
 | `escapeDungeon` | `break` | Break loop |
 
 ### Data Types
-- `potion` - Variable type
-- `elixir` - Variable type
-- `fate` - Variable type
-
-### Built-in Functions
-- `scroll()` - Built-in function
-- `TBA`
+- `potion` - int type
+- `elixir` - float type
+- `fate` - boolean type
+- `scroll` - string type
 
 ### Operators
 - Arithmetic: `+`, `-`, `*`, `/`
@@ -148,13 +145,6 @@ gameOver:
     attack("Unknown error!")
 savePoint:
     attack("Cleanup complete")
-```
-
-### Compound Assignment
-```arcanequest
-health += 10
-mana -= 5
-damage *= 2
 ```
 
 ### Function Calls
