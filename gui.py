@@ -139,7 +139,7 @@ class ArcaneQuestIDE:
         if errors:
             header = f"⚠️ Parsing failed: {len(errors)} error(s)\n"
             err_lines = [f"Line {lineno}: {msg}" for lineno, msg in errors]
-            result = header + "\n".join(err_lines) + "\n\nPartial parse tree:\n" + tree_str
+            result = header + "\n".join(err_lines) + "\n\n" + "="*60 + "\nPartial parse tree:\n" + "="*60 + "\n" + tree_str
         else:
             result = "✅ Parsing successful!\n\nParse tree:\n" + tree_str
         self._display_output(self.parse_output, result)

@@ -140,14 +140,33 @@ def parse_statement(state):
             return Node("KeywordStmt", tok["value"], [], tok["lineno"])
 
     if cur["type"] == TOKEN_IDENTIFIER:
+        # Look ahead to determine what kind of statement this is
         next_tok = state.peek(1)
+        
+        # Assignment: x = ...
         if next_tok["type"] == TOKEN_PUNCT and next_tok["value"] == "=":
             return parse_assignment(state)
+        
+        # Compound assignment: x += ...
         elif next_tok["type"] == TOKEN_OPERATOR and next_tok["value"] in ("+=", "-=", "*=", "/="):
             return parse_compound_assignment(state)
-        else:
+        
+        # Function call or attribute access: func() or obj.method()
+        elif next_tok["type"] == TOKEN_PUNCT and (next_tok["value"] == "(" or next_tok["value"] == "."):
             expr = parse_expr(state)
-            return Node("ExprStmt", None, [expr], cur["lineno"])
+            # Verify it's actually a call (not just an attribute access)
+            if expr.type == "Call":
+                return Node("ExprStmt", None, [expr], cur["lineno"])
+            else:
+                # Just an identifier or attribute without a call - error
+                state.error(f"Invalid statement: '{cur['value']}' expression has no effect", cur["lineno"])
+                return None
+        
+        else:
+            # Bare identifier - this is an error!
+            state.error(f"Invalid statement: bare identifier '{cur['value']}' cannot stand alone", cur["lineno"])
+            state.advance()  # consume the invalid token
+            return None
 
     if cur["type"] == TOKEN_NEWLINE:
         state.advance()
@@ -169,18 +188,31 @@ def parse_import(state):
     if tok is None:
         return None
     node = Node("Import", None, [], tok["lineno"])
+    
+    # Expect at least one module name
+    if not state.match(TOKEN_IDENTIFIER):
+        state.error("Expected module name after 'summon'", state.current().get("lineno"))
+        return node
+    
     while True:
         if state.match(TOKEN_IDENTIFIER):
             mid = state.advance()
             node.add(Node("Module", mid["value"], [], mid["lineno"]))
         else:
-            state.error("Expected module name after 'summon'", state.current().get("lineno"))
-            return node
+            state.error("Expected module name in import statement", state.current().get("lineno"))
+            break
+        
+        # Must have comma to continue, otherwise break
         if state.match(TOKEN_PUNCT, ","):
             state.advance()
-            continue
+            # After comma, MUST have another identifier
+            if not state.match(TOKEN_IDENTIFIER):
+                state.error("Expected module name after ',' in import", state.current().get("lineno"))
+                break
         else:
+            # No comma means end of import list
             break
+    
     return node
 
 
@@ -353,7 +385,14 @@ def parse_for(state):
     var = state.expect([(TOKEN_IDENTIFIER, None)], "Expected loop variable")
     if var:
         node.add(Node("Var", var["value"], [], var["lineno"]))
-    state.expect([(TOKEN_IDENTIFIER, "in")], "Expected 'in' in for loop")
+    
+    # "in" should be treated as an identifier, not a keyword
+    in_tok = state.current()
+    if in_tok["type"] == TOKEN_IDENTIFIER and in_tok["value"] == "in":
+        state.advance()
+    else:
+        state.error("Expected 'in' in for loop", state.current().get("lineno"))
+    
     expr = parse_expr(state)
     node.add(Node("Iter", None, [expr]))
     state.expect([(TOKEN_PUNCT, ":")], "Expected ':' after for header")
