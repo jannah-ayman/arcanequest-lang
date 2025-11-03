@@ -117,17 +117,6 @@ farm item in inventory:
     attack("Found:", item)
 ```
 
-### Pattern Matching
-```arcanequest
-ambush player_action:
-    case "attack":
-        attack("You attack!")
-    case "defend":
-        attack("You defend!")
-    case _:
-        attack("Unknown action")
-```
-
 ### Classes
 ```arcanequest
 guild Hero:

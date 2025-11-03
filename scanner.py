@@ -2,16 +2,16 @@ import re
 
 ARCANE_KEYWORDS = {
     "summon", "quest", "reward", "attack", "scout", "spot", "dodge", "counter",
-    "ambush", "farm", "replay", "guild", "spawn", "embark", "gameOver",
-    "savePoint", "skipEncounter", "escapeDungeon", "case",
+    "farm", "replay", "guild", "spawn", "embark", "gameOver",
+    "savePoint", "skipEncounter", "escapeDungeon",
 }
 ARCANE_DATATYPES = {"potion", "elixir", "fate"}
 ARCANE_BUILTIN_FUNCTIONS = {"scroll"}
 ARCANE_BUILTIN_LITERALS = {"true", "false"}
 ARCANE_OPERATORS = {"and", "or", "not"}
-MULTI_CHAR_OPS = {"<=", ">=", "==", "!=", "+=", "-=", "*=", "/="}
+MULTI_CHAR_OPS = {"**", "<=", ">=", "==", "!=", "+=", "-=", "*=", "/=", "//", "%="}
 SINGLE_CHAR_PUNCT = {
-    "(", ")", "{", "}", ":", ",", "+", "-", "*", "/", "<", ">", "=", ".", "[", "]"
+    "(", ")", "{", "}", ":", ",", "+", "-", "*", "/", "<", ">", "=", ".", "[", "]", "%"
 }
 
 TOKEN_EOF = "EOF"
@@ -151,7 +151,8 @@ def scan_source(source_text):
                 if lower_ident in ARCANE_KEYWORDS:
                     tokens.append(make_token(TOKEN_KEYWORD, lower_ident, line_no, col))
                 elif lower_ident in ARCANE_DATATYPES:
-                    tokens.append(make_token(TOKEN_DATATYPE, lower_ident, line_no, col))
+                    # Datatypes can be used as casting functions too, so treat them as identifiers
+                    tokens.append(make_token(TOKEN_IDENTIFIER, lower_ident, line_no, col))
                 elif lower_ident in ARCANE_BUILTIN_FUNCTIONS:
                     tokens.append(make_token(TOKEN_IDENTIFIER, lower_ident, line_no, col))
                 elif lower_ident in ARCANE_BUILTIN_LITERALS:
@@ -207,11 +208,17 @@ def tokens_to_pretty_lines(tokens):
         if ttype == TOKEN_KEYWORD:
             descriptor = "keyword"
         elif ttype == TOKEN_DATATYPE:
-            descriptor = "datatype"
+            descriptor = "datatype"  # Keep this for backwards compatibility even though we don't use it anymore
         elif ttype == TOKEN_LITERAL:
             descriptor = "literal"
         elif ttype == TOKEN_IDENTIFIER:
-            descriptor = "identifier"
+            # Special marking for datatype identifiers
+            if val in ARCANE_DATATYPES:
+                descriptor = "datatype/builtin"
+            elif val in ARCANE_BUILTIN_FUNCTIONS:
+                descriptor = "builtin"
+            else:
+                descriptor = "identifier"
         elif ttype == TOKEN_NUMBER:
             descriptor = "number"
         elif ttype == TOKEN_STRING:

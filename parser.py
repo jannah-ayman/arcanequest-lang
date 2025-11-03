@@ -131,8 +131,6 @@ def parse_statement(state):
         elif kw == "escapeDungeon":
             tok = state.advance()
             return Node("Break", None, [], tok["lineno"])
-        elif kw == "ambush":
-            return parse_match(state)
         elif kw == "reward":
             return parse_return(state)
         else:
@@ -148,7 +146,7 @@ def parse_statement(state):
             return parse_assignment(state)
         
         # Compound assignment: x += ...
-        elif next_tok["type"] == TOKEN_OPERATOR and next_tok["value"] in ("+=", "-=", "*=", "/="):
+        elif next_tok["type"] == TOKEN_OPERATOR and next_tok["value"] in ("+=", "-=", "*=", "/=", "//=", "%=", "**="):
             return parse_compound_assignment(state)
         
         # Function call or attribute access: func() or obj.method()
@@ -237,12 +235,13 @@ def parse_compound_assignment(state):
     if ident is None:
         return None
     op_tok = state.expect([(TOKEN_OPERATOR, None)], "Expected compound operator")
-    if op_tok is None or op_tok["value"] not in ("+=", "-=", "*=", "/="):
-        state.error("Expected +=, -=, *= or /=", state.current().get("lineno"))
+    if op_tok is None or op_tok["value"] not in ("+=", "-=", "*=", "/=", "//=", "%=", "**="):
+        state.error("Expected +=, -=, *=, /=, //=, %=, or **=", state.current().get("lineno"))
         return Node("Assignment", ident["value"], [], ident["lineno"])
     
     expr = parse_expr(state)
-    base_op = op_tok["value"][0]
+    # Extract base operator (e.g., "+" from "+=", "**" from "**=")
+    base_op = op_tok["value"][:-1]  # Remove the "=" at the end
     var_node = Node("Identifier", ident["value"], [], ident["lineno"])
     binop = Node("BinaryOp", base_op, [var_node, expr], op_tok["lineno"])
     return Node("Assignment", ident["value"], [binop], ident["lineno"])
@@ -277,6 +276,58 @@ def parse_output_stmt(state):
             break
     state.expect([(TOKEN_PUNCT, ")")], "Expected ')' after attack arguments")
     node.children = args
+    return node
+
+
+def parse_case(state):
+    start = state.expect([(TOKEN_KEYWORD, "case")], "Expected 'case' in match")
+    if start is None:
+        return None
+    node = Node("Case", None, [], start["lineno"])
+    
+    if state.match(TOKEN_IDENTIFIER, "_"):
+        underscore = state.advance()
+        node.add(Node("Value", "_", [], underscore["lineno"]))
+    elif state.match(TOKEN_STRING) or state.match(TOKEN_NUMBER) or state.match(TOKEN_LITERAL):
+        val_tok = state.advance()
+        node.add(Node("Value", val_tok["value"], [], val_tok["lineno"]))
+    else:
+        state.error("Expected literal/number/string/_ after 'case'", state.current().get("lineno"))
+    
+    state.expect([(TOKEN_PUNCT, ":")], "Expected ':' after case value")
+    
+    if state.match(TOKEN_NEWLINE):
+        block = parse_statement_block(state)
+        node.add(Node("Body", None, block))
+    else:
+        stmt = parse_statement(state)
+        node.add(Node("Body", None, [stmt] if stmt else []))
+    
+    return node
+
+
+def parse_match(state):
+    start = state.expect([(TOKEN_KEYWORD, "ambush")], "Expected 'ambush' for match")
+    if start is None:
+        return None
+    node = Node("Match", None, [], start["lineno"])
+    expr = parse_expr(state)
+    node.add(Node("Expr", None, [expr]))
+    state.expect([(TOKEN_PUNCT, ":")], "Expected ':' after ambush expression")
+
+    if state.match(TOKEN_NEWLINE):
+        state.advance()
+    else:
+        state.error("Expected NEWLINE before match cases", state.current().get("lineno"))
+
+    if state.match(TOKEN_INDENT):
+        state.advance()
+        while state.match(TOKEN_KEYWORD, "case"):
+            case_node = parse_case(state)
+            node.add(case_node)
+        state.expect([(TOKEN_DEDENT, None)], "Expected DEDENT after match block")
+    else:
+        state.error("Expected indented block of cases", state.current().get("lineno"))
     return node
 
 
@@ -497,7 +548,8 @@ _PRECEDENCE = {
     "not": 3,
     "==": 4, "!=": 4, "<": 4, ">": 4, "<=": 4, ">=": 4,
     "+": 5, "-": 5,
-    "*": 6, "/": 6,
+    "*": 6, "/": 6, "//": 6, "%": 6,
+    "**": 7,  # Power operator has highest precedence
 }
 
 
@@ -506,7 +558,7 @@ def get_precedence(tok):
         return -1
     if tok["type"] == TOKEN_OPERATOR:
         return _PRECEDENCE.get(tok["value"], -1)
-    if tok["type"] == TOKEN_PUNCT and tok["value"] in ("+", "-", "*", "/", "<", ">"):
+    if tok["type"] == TOKEN_PUNCT and tok["value"] in ("+", "-", "*", "/", "<", ">", "%"):
         return _PRECEDENCE.get(tok["value"], -1)
     return -1
 
