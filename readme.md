@@ -1,4 +1,8 @@
-# ⚔️ ArcaneQuest Programming Language
+<p align="center">
+  <img src="images/aq_logo.jpg" alt="logo" width="250"/><br>
+  <h1 align="center">⚔️ ArcaneQuest Programming Language</h1>
+</p>
+
 
 ArcaneQuest is a fantasy-themed programming language with a custom scanner, parser, and IDE. It features gaming-inspired keywords and syntax while maintaining familiar programming constructs.
 
