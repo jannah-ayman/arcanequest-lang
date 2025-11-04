@@ -1,18 +1,16 @@
 import re
 
-KEYWORDS = {
+ARCANE_KEYWORDS = {
     "summon", "quest", "reward", "attack", "scout", "spot", "dodge", "counter",
     "farm", "replay", "guild", "spawn", "embark", "gameOver",
     "savePoint", "skipEncounter", "escapeDungeon",
 }
-DATATYPES = {"potion", "elixir", "fate"}
-BUILTIN_FUNCTIONS = {"scroll"}
-BUILTIN_LITERALS = {"true", "false"}
-OPERATORS = {"and", "or", "not"}
+ARCANE_DATATYPES = {"potion", "elixir", "fate"}
+ARCANE_BUILTIN_FUNCTIONS = {"scroll"}
+ARCANE_BUILTIN_LITERALS = {"true", "false"}
+ARCANE_OPERATORS = {"and", "or", "not"}
 MULTI_CHAR_OPS = {"**", "<=", ">=", "==", "!=", "+=", "-=", "*=", "/=", "//", "%="}
-SINGLE_CHAR_PUNCT = {
-    "(", ")", "{", "}", ":", ",", "+", "-", "*", "/", "<", ">", "=", ".", "[", "]", "%"
-}
+SINGLE_CHAR_PUNCT = {"(", ")", "{", "}", ":", ",", "+", "-", "*", "/", "<", ">", "=", ".", "[", "]", "%"}
 
 TOKEN_EOF = "EOF"
 TOKEN_NEWLINE = "NEWLINE"
@@ -33,47 +31,36 @@ _RE_NUMBER = re.compile(r"^\d+(\.\d+)?")
 _RE_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*")
 _RE_STRING = re.compile(r"^\"([^\"\\]|\\.)*\"")
 _RE_WS = re.compile(r"^[ \t]+")
-_RE_COMMENT = re.compile(r"^-->(.*)")
 
-
-def make_token(t_type, value, lineno, col):
-    return {"type": t_type, "value": value, "lineno": lineno, "col": col}
+make_token = lambda t, v, ln, c: {"type": t, "value": v, "lineno": ln, "col": c}
 
 def scan_source(source_text):
     lines = source_text.splitlines()
     tokens = []
     indent_stack = [0]
-    indent_unit = None  # Will be set on first indent (e.g., 4 spaces or 1 tab)
+    indent_unit = None
     line_no = 0
 
     for raw_line in lines:
         line_no += 1
         line = raw_line.rstrip("\n\r")
 
-        # blank lines: emit NEWLINE only
         if line.strip() == "":
             tokens.append(make_token(TOKEN_NEWLINE, "\\n", line_no, 0))
             continue
 
         ws_match = _RE_WS.match(line)
         leading_ws = ws_match.group(0) if ws_match else ""
-        leading_spaces = leading_ws.replace("\t", "    ")  # Convert tabs to 4 spaces
-        indent_len = len(leading_spaces)
+        indent_len = len(leading_ws.replace("\t", "    "))
         stripped = line[len(leading_ws):]
 
-        # INDENT / DEDENT handling
+        # Handle indentation
         if indent_len > indent_stack[-1]:
-            # Increasing indentation
             indent_increase = indent_len - indent_stack[-1]
-            
-            # Set the indent unit on first indent
             if indent_unit is None:
                 indent_unit = indent_increase
-            
-            # Check if the indent is a valid multiple of the indent unit
             if indent_increase != indent_unit:
                 tokens.append(make_token(TOKEN_UNKNOWN, f"IndentationError: inconsistent indent (expected {indent_unit} spaces)", line_no, 0))
-            
             indent_stack.append(indent_len)
             tokens.append(make_token(TOKEN_INDENT, indent_len, line_no, 0))
         else:
@@ -83,21 +70,15 @@ def scan_source(source_text):
             if indent_len != indent_stack[-1]:
                 tokens.append(make_token(TOKEN_UNKNOWN, f"IndentationError: unindent does not match any outer indentation level", line_no, 0))
 
-        # tokenize the content of the line
+        # Check for comment
         col = len(leading_ws)
-        content = stripped
-        comment_search = re.search(r"-->", content)
-        comment_text = None
-        if comment_search:
-            idx = comment_search.start()
-            comment_text = content[idx + 3 :]
-            content_to_tokenize = content[:idx]
-        else:
-            content_to_tokenize = content
+        comment_idx = stripped.find("-->")
+        content = stripped[:comment_idx] if comment_idx != -1 else stripped
+        comment_text = stripped[comment_idx + 3:].strip() if comment_idx != -1 else None
 
-        s = content_to_tokenize
+        # Tokenize content
+        s = content
         while s:
-            # skip whitespace inside line
             if s[0].isspace():
                 ws_m = _RE_WS.match(s)
                 span = len(ws_m.group(0)) if ws_m else 1
@@ -105,7 +86,7 @@ def scan_source(source_text):
                 s = s[span:]
                 continue
 
-            # multi-char operators
+            # Multi-char operators
             matched = False
             for op in sorted(MULTI_CHAR_OPS, key=lambda x: -len(x)):
                 if s.startswith(op):
@@ -117,66 +98,50 @@ def scan_source(source_text):
             if matched:
                 continue
 
-            # single-character punctuation
-            ch = s[0]
-            if ch in SINGLE_CHAR_PUNCT:
-                tokens.append(make_token(TOKEN_PUNCT, ch, line_no, col))
+            # Single-char punctuation
+            if s[0] in SINGLE_CHAR_PUNCT:
+                tokens.append(make_token(TOKEN_PUNCT, s[0], line_no, col))
                 col += 1
                 s = s[1:]
                 continue
 
-            # string literal
-            m = _RE_STRING.match(s)
-            if m:
-                lit = m.group(0)
-                tokens.append(make_token(TOKEN_STRING, lit, line_no, col))
-                col += len(lit)
-                s = s[len(lit):]
+            # String, number, identifier
+            for pattern, token_type in [(r"^\"([^\"\\]|\\.)*\"", TOKEN_STRING), 
+                                        (r"^\d+(\.\d+)?", TOKEN_NUMBER), 
+                                        (r"^[A-Za-z_][A-Za-z0-9_]*", None)]:
+                m = re.match(pattern, s)
+                if m:
+                    lit = m.group(0)
+                    if token_type is None:  # Identifier
+                        if lit in ARCANE_KEYWORDS:
+                            token_type = TOKEN_KEYWORD
+                        elif lit in ARCANE_DATATYPES or lit in ARCANE_BUILTIN_FUNCTIONS:
+                            token_type = TOKEN_IDENTIFIER
+                        elif lit in ARCANE_BUILTIN_LITERALS:
+                            token_type = TOKEN_LITERAL
+                        elif lit in ARCANE_OPERATORS:
+                            token_type = TOKEN_OPERATOR
+                        else:
+                            token_type = TOKEN_IDENTIFIER
+                    tokens.append(make_token(token_type, lit, line_no, col))
+                    col += len(lit)
+                    s = s[len(lit):]
+                    matched = True
+                    break
+            if matched:
+                matched = False
                 continue
 
-            # number
-            m = _RE_NUMBER.match(s)
-            if m:
-                num = m.group(0)
-                tokens.append(make_token(TOKEN_NUMBER, num, line_no, col))
-                col += len(num)
-                s = s[len(num):]
-                continue
-
-            # identifier / keyword / datatype / literal / operator words
-            m = _RE_IDENTIFIER.match(s)
-            if m:
-                ident = m.group(0)
-                lower_ident = ident
-                if lower_ident in KEYWORDS:
-                    tokens.append(make_token(TOKEN_KEYWORD, lower_ident, line_no, col))
-                elif lower_ident in DATATYPES:
-                    # Datatypes can be used as casting functions too, so treat them as identifiers
-                    tokens.append(make_token(TOKEN_IDENTIFIER, lower_ident, line_no, col))
-                elif lower_ident in BUILTIN_FUNCTIONS:
-                    tokens.append(make_token(TOKEN_IDENTIFIER, lower_ident, line_no, col))
-                elif lower_ident in BUILTIN_LITERALS:
-                    tokens.append(make_token(TOKEN_LITERAL, lower_ident, line_no, col))
-                elif lower_ident in OPERATORS:
-                    tokens.append(make_token(TOKEN_OPERATOR, lower_ident, line_no, col))
-                else:
-                    tokens.append(make_token(TOKEN_IDENTIFIER, ident, line_no, col))
-                col += len(ident)
-                s = s[len(ident):]
-                continue
-
-            # unknown single char
+            # Unknown character
             tokens.append(make_token(TOKEN_UNKNOWN, s[0], line_no, col))
             s = s[1:]
             col += 1
 
-        # append comment token if present
-        if comment_text is not None:
-            tokens.append(make_token(TOKEN_COMMENT, comment_text.strip(), line_no, col))
-        # end of logical line
+        if comment_text:
+            tokens.append(make_token(TOKEN_COMMENT, comment_text, line_no, col))
         tokens.append(make_token(TOKEN_NEWLINE, "\\n", line_no, len(raw_line)))
 
-    # unwind dedents to 0
+    # Unwind dedents
     while len(indent_stack) > 1:
         indent_stack.pop()
         tokens.append(make_token(TOKEN_DEDENT, "DEDENT", line_no + 1, 0))
@@ -184,65 +149,34 @@ def scan_source(source_text):
     tokens.append(make_token(TOKEN_EOF, "EOF", line_no + 1, 0))
     return tokens
 
-# Utility: pretty print tokens for scanner UI
+
 def tokens_to_pretty_lines(tokens):
     lines = []
+    punct_map = {",": "comma", ":": "colon", "=": "assign", ".": "dot",
+                 "(": "lparen", ")": "rparen", "{": "lbrace", "}": "rbrace",
+                 "+": "plus", "-": "minus", "*": "star", "/": "slash",
+                 "<": "lt", ">": "gt", "<=": "lte", ">=": "gte", "==": "eq", "!=": "neq"}
+    
     for tok in tokens:
-        ttype = tok["type"]
-        val = tok["value"]
-        lineno = tok.get("lineno", "?")
-        if ttype == TOKEN_NEWLINE:
+        if tok["type"] in (TOKEN_NEWLINE, TOKEN_EOF):
             continue
-        if ttype == TOKEN_INDENT:
-            lines.append(("INDENT", str(val), lineno))
+        if tok["type"] in (TOKEN_INDENT, TOKEN_DEDENT):
+            lines.append((tok["type"], str(tok["value"]), tok["lineno"]))
             continue
-        if ttype == TOKEN_DEDENT:
-            lines.append(("DEDENT", str(val), lineno))
-            continue
-        if ttype == TOKEN_EOF:
-            continue
-        descriptor = ""
-        if ttype == TOKEN_KEYWORD:
-            descriptor = "keyword"
-        elif ttype == TOKEN_DATATYPE:
-            descriptor = "datatype"  # Keep this for backwards compatibility even though we don't use it anymore
-        elif ttype == TOKEN_LITERAL:
-            descriptor = "literal"
-        elif ttype == TOKEN_IDENTIFIER:
-            # Special marking for datatype identifiers
-            if val in DATATYPES:
-                descriptor = "datatype/builtin"
-            elif val in BUILTIN_FUNCTIONS:
-                descriptor = "builtin"
-            else:
-                descriptor = "identifier"
-        elif ttype == TOKEN_NUMBER:
-            descriptor = "number"
-        elif ttype == TOKEN_STRING:
-            descriptor = "string"
-        elif ttype == TOKEN_OPERATOR:
-            descriptor = "operator"
-        elif ttype == TOKEN_PUNCT:
-            punct_map = {
-                ",": "comma", ":": "colon", "=": "assign", ".": "dot",
-                "(": "lparen", ")": "rparen", "{": "lbrace", "}": "rbrace",
-                "+": "plus", "-": "minus", "*": "star", "/": "slash",
-                "<": "lt", ">": "gt", "<=": "lte", ">=": "gte", "==": "eq", "!=": "neq",
-            }
-            descriptor = punct_map.get(val, "punct")
-        elif ttype == TOKEN_COMMENT:
-            descriptor = "comment"
-        elif ttype == TOKEN_UNKNOWN:
-            descriptor = "unknown"
-        else:
-            descriptor = ttype.lower()
-        lines.append((val, descriptor, lineno))
-    pretty = []
-    maxlen = 0
-    for v, d, ln in lines:
-        vstr = str(v)
-        if len(vstr) > maxlen:
-            maxlen = len(vstr)
-    for v, d, ln in lines:
-        pretty.append(f"{str(v).ljust(maxlen)}    → {d}    (line {ln})")
-    return "\n".join(pretty)
+        
+        desc = {"KEYWORD": "keyword", "LITERAL": "literal", "NUMBER": "number", 
+                "STRING": "string", "OPERATOR": "operator", "COMMENT": "comment", 
+                "UNKNOWN": "unknown"}.get(tok["type"])
+        
+        if tok["type"] == TOKEN_IDENTIFIER:
+            val = tok["value"]
+            desc = "datatype/builtin" if val in ARCANE_DATATYPES else "builtin" if val in ARCANE_BUILTIN_FUNCTIONS else "identifier"
+        elif tok["type"] == TOKEN_PUNCT:
+            desc = punct_map.get(tok["value"], "punct")
+        elif not desc:
+            desc = tok["type"].lower()
+        
+        lines.append((tok["value"], desc, tok["lineno"]))
+    
+    maxlen = max((len(str(v)) for v, _, _ in lines), default=0)
+    return "\n".join(f"{str(v).ljust(maxlen)}    → {d}    (line {ln})" for v, d, ln in lines)
