@@ -1,14 +1,14 @@
 import re
 
-ARCANE_KEYWORDS = {
+KEYWORDS = {
     "summon", "quest", "reward", "attack", "scout", "spot", "dodge", "counter",
     "farm", "replay", "guild", "spawn", "embark", "gameOver",
     "savePoint", "skipEncounter", "escapeDungeon",
 }
-ARCANE_DATATYPES = {"potion", "elixir", "fate"}
-ARCANE_BUILTIN_FUNCTIONS = {"scroll"}
-ARCANE_BUILTIN_LITERALS = {"true", "false"}
-ARCANE_OPERATORS = {"and", "or", "not"}
+DATATYPES = {"potion", "elixir", "fate"}
+BUILTIN_FUNCTIONS = {"scroll"}
+BUILTIN_LITERALS = {"true", "false"}
+OPERATORS = {"and", "or", "not"}
 MULTI_CHAR_OPS = {"**", "<=", ">=", "==", "!=", "+=", "-=", "*=", "/=", "//", "%="}
 SINGLE_CHAR_PUNCT = {
     "(", ")", "{", "}", ":", ",", "+", "-", "*", "/", "<", ">", "=", ".", "[", "]", "%"
@@ -148,16 +148,16 @@ def scan_source(source_text):
             if m:
                 ident = m.group(0)
                 lower_ident = ident
-                if lower_ident in ARCANE_KEYWORDS:
+                if lower_ident in KEYWORDS:
                     tokens.append(make_token(TOKEN_KEYWORD, lower_ident, line_no, col))
-                elif lower_ident in ARCANE_DATATYPES:
+                elif lower_ident in DATATYPES:
                     # Datatypes can be used as casting functions too, so treat them as identifiers
                     tokens.append(make_token(TOKEN_IDENTIFIER, lower_ident, line_no, col))
-                elif lower_ident in ARCANE_BUILTIN_FUNCTIONS:
+                elif lower_ident in BUILTIN_FUNCTIONS:
                     tokens.append(make_token(TOKEN_IDENTIFIER, lower_ident, line_no, col))
-                elif lower_ident in ARCANE_BUILTIN_LITERALS:
+                elif lower_ident in BUILTIN_LITERALS:
                     tokens.append(make_token(TOKEN_LITERAL, lower_ident, line_no, col))
-                elif lower_ident in ARCANE_OPERATORS:
+                elif lower_ident in OPERATORS:
                     tokens.append(make_token(TOKEN_OPERATOR, lower_ident, line_no, col))
                 else:
                     tokens.append(make_token(TOKEN_IDENTIFIER, ident, line_no, col))
@@ -184,10 +184,7 @@ def scan_source(source_text):
     tokens.append(make_token(TOKEN_EOF, "EOF", line_no + 1, 0))
     return tokens
 
-
-# ==========================================================
 # Utility: pretty print tokens for scanner UI
-# ==========================================================
 def tokens_to_pretty_lines(tokens):
     lines = []
     for tok in tokens:
@@ -213,9 +210,9 @@ def tokens_to_pretty_lines(tokens):
             descriptor = "literal"
         elif ttype == TOKEN_IDENTIFIER:
             # Special marking for datatype identifiers
-            if val in ARCANE_DATATYPES:
+            if val in DATATYPES:
                 descriptor = "datatype/builtin"
-            elif val in ARCANE_BUILTIN_FUNCTIONS:
+            elif val in BUILTIN_FUNCTIONS:
                 descriptor = "builtin"
             else:
                 descriptor = "identifier"

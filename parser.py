@@ -64,11 +64,7 @@ class ParserState:
         ln = lineno if lineno is not None else (self.current()["lineno"] if self.current() else -1)
         self.errors.append((ln, msg))
 
-
-# ==========================================================
 # PARSER IMPLEMENTATION
-# ==========================================================
-
 def parse(tokens):
     state = ParserState(tokens)
     root = Node("Program", lineno=1)
@@ -539,9 +535,6 @@ def parse_statement_block(state):
         state.error("Expected DEDENT after block", state.current().get("lineno"))
     return stmts
 
-
-# ---------------- expression parser ----------------
-
 _PRECEDENCE = {
     "or": 1,
     "and": 2,
@@ -549,9 +542,8 @@ _PRECEDENCE = {
     "==": 4, "!=": 4, "<": 4, ">": 4, "<=": 4, ">=": 4,
     "+": 5, "-": 5,
     "*": 6, "/": 6, "//": 6, "%": 6,
-    "**": 7,  # Power operator has highest precedence
+    "**": 7,  
 }
-
 
 def get_precedence(tok):
     if tok is None:
