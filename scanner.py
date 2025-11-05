@@ -1,17 +1,55 @@
 import re
 
-ARCANE_KEYWORDS = {
-    "summon", "quest", "reward", "attack", "scout", "spot", "dodge", "counter",
-    "farm", "replay", "guild", "spawn", "embark", "gameOver",
-    "savePoint", "skipEncounter", "escapeDungeon",
-}
-ARCANE_DATATYPES = {"potion", "elixir", "fate"}
-ARCANE_BUILTIN_FUNCTIONS = {"scroll"}
-ARCANE_BUILTIN_LITERALS = {"true", "false"}
-ARCANE_OPERATORS = {"and", "or", "not"}
-MULTI_CHAR_OPS = {"**", "<=", ">=", "==", "!=", "+=", "-=", "*=", "/=", "//", "%="}
-SINGLE_CHAR_PUNCT = {"(", ")", "{", "}", ":", ",", "+", "-", "*", "/", "<", ">", "=", ".", "[", "]", "%"}
+# ============================================================================
+# TOKEN DEFINITIONS
+# ============================================================================
 
+# Keywords: Core language commands
+KEYWORDS = {
+    "summon",          # import statement
+    "quest",           # function definition
+    "reward",          # return statement
+    "attack",          # output/print
+    "scout",           # input
+    "spot",            # if statement
+    "dodge",           # else
+    "counter",         # elif
+    "replay",          # while loop
+    "farm",            # for loop
+    "guild",           # class definition
+    "embark",          # try block
+    "gameOver",        # except block
+    "savePoint",       # finally block
+    "skipEncounter",   # continue
+    "escapeDungeon",   # break
+}
+
+# Data types
+DATATYPES = {"potion", "elixir", "fate"}
+
+# Built-in boolean literals
+BUILTIN_LITERALS = {"true", "false"}
+
+# Word-based operators
+OPERATORS = {"and", "or", "not"}
+
+# Multi-character operators (order matters for longest-match)
+MULTI_CHAR_OPS = {
+    "**",   # exponentiation
+    "<=", ">=", "==", "!=",  # comparison
+    "+=", "-=", "*=", "/=", "%=",  # compound assignment
+    "//",   # floor division (comment in tokenizer)
+}
+
+# Single-character punctuation and operators
+SINGLE_CHAR_PUNCT = {
+    "(", ")", "{", "}", "[", "]",  # delimiters
+    ":", ",", ".",                  # separators
+    "+", "-", "*", "/", "%",        # arithmetic
+    "<", ">", "=",                  # comparison/assignment
+}
+
+# Token type constants
 TOKEN_EOF = "EOF"
 TOKEN_NEWLINE = "NEWLINE"
 TOKEN_INDENT = "INDENT"
@@ -27,58 +65,137 @@ TOKEN_OPERATOR = "OPERATOR"
 TOKEN_PUNCT = "PUNCT"
 TOKEN_UNKNOWN = "UNKNOWN"
 
-_RE_NUMBER = re.compile(r"^\d+(\.\d+)?")
-_RE_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*")
-_RE_STRING = re.compile(r"^\"([^\"\\]|\\.)*\"")
-_RE_WS = re.compile(r"^[ \t]+")
+# ============================================================================
+# REGEX PATTERNS
+# ============================================================================
 
-make_token = lambda t, v, ln, c: {"type": t, "value": v, "lineno": ln, "col": c}
+_RE_NUMBER = re.compile(r"^\d+(?:\.\d+)?")  # integer or float
+_RE_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*")  # variable names
+_RE_STRING = re.compile(r"^\"(?:[^\"\\]|\\.)*\"")  # double-quoted strings
+_RE_WS = re.compile(r"^[ \t]+")  # whitespace (spaces and tabs)
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def make_token(token_type, value, line_number, column):
+    """
+    Factory function to create a token dictionary.
+    
+    Args:
+        token_type: Type of token (TOKEN_*)
+        value: The actual text/value of the token
+        line_number: Source line number
+        column: Column position in line
+    
+    Returns:
+        Dictionary with token information
+    """
+    return {
+        "type": token_type,
+        "value": value,
+        "lineno": line_number,
+        "col": column
+    }
+
+# ============================================================================
+# MAIN SCANNER FUNCTION
+# ============================================================================
 
 def scan_source(source_text):
+    """
+    Tokenize ArcaneQuest source code.
+    
+    Handles:
+    - Indentation-based blocks (like Python)
+    - Comments (marked with -->)
+    - Keywords, identifiers, literals
+    - Multi-character and single-character operators
+    
+    Args:
+        source_text: String containing source code
+    
+    Returns:
+        List of token dictionaries
+    """
     lines = source_text.splitlines()
     tokens = []
-    indent_stack = [0]
-    indent_unit = None
+    indent_stack = [0]  # Track indentation levels
+    indent_unit = None  # First indent determines the standard (e.g., 4 spaces)
     line_no = 0
 
     for raw_line in lines:
         line_no += 1
         line = raw_line.rstrip("\n\r")
 
+        # Empty lines produce NEWLINE token only
         if line.strip() == "":
-            tokens.append(make_token(TOKEN_NEWLINE, "\\n", line_no, 0))
+            tokens.append(make_token(TOKEN_NEWLINE, "", line_no, 0))
             continue
 
+        # Calculate leading whitespace (tabs = 4 spaces)
         ws_match = _RE_WS.match(line)
         leading_ws = ws_match.group(0) if ws_match else ""
         indent_len = len(leading_ws.replace("\t", "    "))
         stripped = line[len(leading_ws):]
 
-        # Handle indentation
-        if indent_len > indent_stack[-1]:
-            indent_increase = indent_len - indent_stack[-1]
+        # ====================================================================
+        # INDENTATION TRACKING
+        # ====================================================================
+        
+        current_indent = indent_stack[-1]
+        
+        if indent_len > current_indent:
+            # Increase in indentation
+            indent_increase = indent_len - current_indent
+            
+            # Set indent unit on first indent
             if indent_unit is None:
                 indent_unit = indent_increase
-            if indent_increase != indent_unit:
-                tokens.append(make_token(TOKEN_UNKNOWN, f"IndentationError: inconsistent indent (expected {indent_unit} spaces)", line_no, 0))
+            
+            # Check for consistent indentation
+            if indent_increase % indent_unit != 0:
+                tokens.append(make_token(
+                    TOKEN_UNKNOWN,
+                    f"IndentationError: inconsistent indent (expected multiple of {indent_unit} spaces)",
+                    line_no,
+                    0
+                ))
+            
             indent_stack.append(indent_len)
             tokens.append(make_token(TOKEN_INDENT, indent_len, line_no, 0))
-        else:
+        
+        elif indent_len < current_indent:
+            # Decrease in indentation - may require multiple DEDENTs
             while indent_len < indent_stack[-1]:
                 indent_stack.pop()
-                tokens.append(make_token(TOKEN_DEDENT, "DEDENT", line_no, 0))
+                tokens.append(make_token(TOKEN_DEDENT, "", line_no, 0))
+            
+            # Check if dedent matches a previous level
             if indent_len != indent_stack[-1]:
-                tokens.append(make_token(TOKEN_UNKNOWN, f"IndentationError: unindent does not match any outer indentation level", line_no, 0))
+                tokens.append(make_token(
+                    TOKEN_UNKNOWN,
+                    f"IndentationError: unindent does not match any outer indentation level",
+                    line_no,
+                    0
+                ))
 
-        # Check for comment
+        # ====================================================================
+        # COMMENT DETECTION
+        # ====================================================================
+        
         col = len(leading_ws)
         comment_idx = stripped.find("-->")
         content = stripped[:comment_idx] if comment_idx != -1 else stripped
         comment_text = stripped[comment_idx + 3:].strip() if comment_idx != -1 else None
 
-        # Tokenize content
+        # ====================================================================
+        # TOKENIZE LINE CONTENT
+        # ====================================================================
+        
         s = content
         while s:
+            # Skip whitespace
             if s[0].isspace():
                 ws_m = _RE_WS.match(s)
                 span = len(ws_m.group(0)) if ws_m else 1
@@ -86,7 +203,7 @@ def scan_source(source_text):
                 s = s[span:]
                 continue
 
-            # Multi-char operators
+            # Try multi-character operators (longest match first)
             matched = False
             for op in sorted(MULTI_CHAR_OPS, key=lambda x: -len(x)):
                 if s.startswith(op):
@@ -98,85 +215,153 @@ def scan_source(source_text):
             if matched:
                 continue
 
-            # Single-char punctuation
+            # Single-character punctuation
             if s[0] in SINGLE_CHAR_PUNCT:
                 tokens.append(make_token(TOKEN_PUNCT, s[0], line_no, col))
                 col += 1
                 s = s[1:]
                 continue
 
-            # String, number, identifier
-            for pattern, token_type in [(r"^\"([^\"\\]|\\.)*\"", TOKEN_STRING), 
-                                        (r"^\d+(\.\d+)?", TOKEN_NUMBER), 
-                                        (r"^[A-Za-z_][A-Za-z0-9_]*", None)]:
-                m = re.match(pattern, s)
-                if m:
-                    lit = m.group(0)
-                    if token_type is None:  # Identifier
-                        if lit in ARCANE_KEYWORDS:
-                            token_type = TOKEN_KEYWORD
-                        elif lit in ARCANE_DATATYPES or lit in ARCANE_BUILTIN_FUNCTIONS:
-                            token_type = TOKEN_IDENTIFIER
-                        elif lit in ARCANE_BUILTIN_LITERALS:
-                            token_type = TOKEN_LITERAL
-                        elif lit in ARCANE_OPERATORS:
-                            token_type = TOKEN_OPERATOR
-                        else:
-                            token_type = TOKEN_IDENTIFIER
-                    tokens.append(make_token(token_type, lit, line_no, col))
-                    col += len(lit)
-                    s = s[len(lit):]
-                    matched = True
-                    break
-            if matched:
-                matched = False
+            # String literals
+            m = _RE_STRING.match(s)
+            if m:
+                lit = m.group(0)
+                tokens.append(make_token(TOKEN_STRING, lit, line_no, col))
+                col += len(lit)
+                s = s[len(lit):]
                 continue
 
-            # Unknown character
+            # Number literals
+            m = _RE_NUMBER.match(s)
+            if m:
+                lit = m.group(0)
+                tokens.append(make_token(TOKEN_NUMBER, lit, line_no, col))
+                col += len(lit)
+                s = s[len(lit):]
+                continue
+
+            # Identifiers, keywords, datatypes, operators (word-based)
+            m = _RE_IDENTIFIER.match(s)
+            if m:
+                lit = m.group(0)
+                
+                # Classify the identifier
+                if lit in KEYWORDS:
+                    token_type = TOKEN_KEYWORD
+                elif lit in DATATYPES:
+                    token_type = TOKEN_DATATYPE
+                elif lit in BUILTIN_LITERALS:
+                    token_type = TOKEN_LITERAL
+                elif lit in OPERATORS:
+                    token_type = TOKEN_OPERATOR
+                else:
+                    token_type = TOKEN_IDENTIFIER
+                
+                tokens.append(make_token(token_type, lit, line_no, col))
+                col += len(lit)
+                s = s[len(lit):]
+                continue
+
+            # Unknown character - report as error
             tokens.append(make_token(TOKEN_UNKNOWN, s[0], line_no, col))
             s = s[1:]
             col += 1
 
+        # Add comment token if present
         if comment_text:
             tokens.append(make_token(TOKEN_COMMENT, comment_text, line_no, col))
-        tokens.append(make_token(TOKEN_NEWLINE, "\\n", line_no, len(raw_line)))
+        
+        # End of line
+        tokens.append(make_token(TOKEN_NEWLINE, "", line_no, len(raw_line)))
 
-    # Unwind dedents
+    # ====================================================================
+    # FINALIZATION: Unwind remaining indentation
+    # ====================================================================
+    
     while len(indent_stack) > 1:
         indent_stack.pop()
-        tokens.append(make_token(TOKEN_DEDENT, "DEDENT", line_no + 1, 0))
+        tokens.append(make_token(TOKEN_DEDENT, "", line_no + 1, 0))
 
-    tokens.append(make_token(TOKEN_EOF, "EOF", line_no + 1, 0))
+    tokens.append(make_token(TOKEN_EOF, "", line_no + 1, 0))
     return tokens
 
 
+# ============================================================================
+# PRETTY PRINTER
+# ============================================================================
+
 def tokens_to_pretty_lines(tokens):
+    """
+    Format tokens into human-readable output.
+    
+    Args:
+        tokens: List of token dictionaries
+    
+    Returns:
+        Formatted string showing token values, descriptions, and line numbers
+    """
     lines = []
-    punct_map = {",": "comma", ":": "colon", "=": "assign", ".": "dot",
-                 "(": "lparen", ")": "rparen", "{": "lbrace", "}": "rbrace",
-                 "+": "plus", "-": "minus", "*": "star", "/": "slash",
-                 "<": "lt", ">": "gt", "<=": "lte", ">=": "gte", "==": "eq", "!=": "neq"}
+    
+    # Map punctuation to readable names
+    punct_names = {
+        ",": "comma", ":": "colon", "=": "assign", ".": "dot",
+        "(": "lparen", ")": "rparen", "{": "lbrace", "}": "rbrace",
+        "[": "lbracket", "]": "rbracket",
+        "+": "plus", "-": "minus", "*": "star", "/": "slash", "%": "mod",
+        "<": "lt", ">": "gt",
+    }
+    
+    # Map operator symbols to readable names
+    operator_names = {
+        "<=": "lte", ">=": "gte", "==": "eq", "!=": "neq",
+        "+=": "plus_assign", "-=": "minus_assign",
+        "*=": "mult_assign", "/=": "div_assign", "%=": "mod_assign",
+        "**": "power", "//": "floor_div",
+    }
     
     for tok in tokens:
+        # Skip formatting-only tokens
         if tok["type"] in (TOKEN_NEWLINE, TOKEN_EOF):
             continue
+        
+        # Handle indentation tokens specially
         if tok["type"] in (TOKEN_INDENT, TOKEN_DEDENT):
-            lines.append((tok["type"], str(tok["value"]), tok["lineno"]))
+            value = str(tok["value"]) if tok["value"] else tok["type"]
+            lines.append((value, tok["type"], tok["lineno"]))
             continue
         
-        desc = {"KEYWORD": "keyword", "LITERAL": "literal", "NUMBER": "number", 
-                "STRING": "string", "OPERATOR": "operator", "COMMENT": "comment", 
-                "UNKNOWN": "unknown"}.get(tok["type"])
-        
+        # Determine description
         if tok["type"] == TOKEN_IDENTIFIER:
-            val = tok["value"]
-            desc = "datatype/builtin" if val in ARCANE_DATATYPES else "builtin" if val in ARCANE_BUILTIN_FUNCTIONS else "identifier"
+            desc = "identifier"
         elif tok["type"] == TOKEN_PUNCT:
-            desc = punct_map.get(tok["value"], "punct")
-        elif not desc:
+            desc = punct_names.get(tok["value"], "punct")
+        elif tok["type"] == TOKEN_OPERATOR:
+            desc = operator_names.get(tok["value"], "operator")
+        elif tok["type"] == TOKEN_KEYWORD:
+            desc = "keyword"
+        elif tok["type"] == TOKEN_DATATYPE:
+            desc = "datatype"
+        elif tok["type"] == TOKEN_LITERAL:
+            desc = "literal"
+        elif tok["type"] == TOKEN_NUMBER:
+            desc = "number"
+        elif tok["type"] == TOKEN_STRING:
+            desc = "string"
+        elif tok["type"] == TOKEN_COMMENT:
+            desc = "comment"
+        elif tok["type"] == TOKEN_UNKNOWN:
+            desc = "unknown"
+        else:
             desc = tok["type"].lower()
         
         lines.append((tok["value"], desc, tok["lineno"]))
     
-    maxlen = max((len(str(v)) for v, _, _ in lines), default=0)
-    return "\n".join(f"{str(v).ljust(maxlen)}    → {d}    (line {ln})" for v, d, ln in lines)
+    # Format with aligned columns
+    if not lines:
+        return ""
+    
+    maxlen = max(len(str(v)) for v, _, _ in lines)
+    return "\n".join(
+        f"{str(v).ljust(maxlen)}    → {d}    (line {ln})"
+        for v, d, ln in lines
+    )
