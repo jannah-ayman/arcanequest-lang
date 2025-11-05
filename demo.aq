@@ -39,13 +39,13 @@ replay (playerHealth > 0 and dragonHealth > 0):
     --> Player turn
     strikeDmg = calculateStrike(playerDamage, dragonArmor)
     dragonHealth = dragonHealth - strikeDmg
-    attack("Dealt " + scroll(strikeDmg) + "! Dragon: " + dragonHealth)
+    attack("Dealt " , strikeDmg , "! Dragon: " + dragonHealth)
 
     --> Dragon counter if alive
     spot (dragonHealth > 0):
         counterDmg = random.randint(10, 20)
         playerHealth -= counterDmg
-        attack("Dragon hits " + scroll(counterDmg) + "! Health: " + scroll(playerHealth))
+        attack("Dragon hits " , counterDmg , "! Health: " , playerHealth)
 
     --> Win check
     spot (dragonHealth <= 0):
@@ -54,4 +54,4 @@ replay (playerHealth > 0 and dragonHealth > 0):
 spot (playerHealth <= 0):
     attack("You fall in defeat!")
 dodge:
-    attack("Quest ends – final health: " + scroll(playerHealth))
+    attack("Quest ends – final health: " , playerHealth)

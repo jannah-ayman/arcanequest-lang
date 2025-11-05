@@ -1,9 +1,5 @@
 import re
 
-# ============================================================================
-# TOKEN DEFINITIONS
-# ============================================================================
-
 # Keywords: Core language commands
 KEYWORDS = {
     "summon",          # import statement
@@ -25,7 +21,7 @@ KEYWORDS = {
 }
 
 # Data types
-DATATYPES = {"potion", "elixir", "fate"}
+DATATYPES = {"potion", "elixir", "fate", "scroll"}
 
 # Built-in boolean literals
 BUILTIN_LITERALS = {"true", "false"}
@@ -65,19 +61,14 @@ TOKEN_OPERATOR = "OPERATOR"
 TOKEN_PUNCT = "PUNCT"
 TOKEN_UNKNOWN = "UNKNOWN"
 
-# ============================================================================
 # REGEX PATTERNS
-# ============================================================================
-
 _RE_NUMBER = re.compile(r"^\d+(?:\.\d+)?")  # integer or float
 _RE_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*")  # variable names
 _RE_STRING = re.compile(r"^\"(?:[^\"\\]|\\.)*\"")  # double-quoted strings
 _RE_WS = re.compile(r"^[ \t]+")  # whitespace (spaces and tabs)
 
-# ============================================================================
-# HELPER FUNCTIONS
-# ============================================================================
 
+# HELPER FUNCTIONS
 def make_token(token_type, value, line_number, column):
     """
     Factory function to create a token dictionary.
@@ -98,10 +89,7 @@ def make_token(token_type, value, line_number, column):
         "col": column
     }
 
-# ============================================================================
 # MAIN SCANNER FUNCTION
-# ============================================================================
-
 def scan_source(source_text):
     """
     Tokenize ArcaneQuest source code.
@@ -139,10 +127,7 @@ def scan_source(source_text):
         indent_len = len(leading_ws.replace("\t", "    "))
         stripped = line[len(leading_ws):]
 
-        # ====================================================================
         # INDENTATION TRACKING
-        # ====================================================================
-        
         current_indent = indent_stack[-1]
         
         if indent_len > current_indent:
@@ -180,19 +165,13 @@ def scan_source(source_text):
                     0
                 ))
 
-        # ====================================================================
         # COMMENT DETECTION
-        # ====================================================================
-        
         col = len(leading_ws)
         comment_idx = stripped.find("-->")
         content = stripped[:comment_idx] if comment_idx != -1 else stripped
         comment_text = stripped[comment_idx + 3:].strip() if comment_idx != -1 else None
 
-        # ====================================================================
         # TOKENIZE LINE CONTENT
-        # ====================================================================
-        
         s = content
         while s:
             # Skip whitespace
@@ -274,10 +253,7 @@ def scan_source(source_text):
         # End of line
         tokens.append(make_token(TOKEN_NEWLINE, "", line_no, len(raw_line)))
 
-    # ====================================================================
     # FINALIZATION: Unwind remaining indentation
-    # ====================================================================
-    
     while len(indent_stack) > 1:
         indent_stack.pop()
         tokens.append(make_token(TOKEN_DEDENT, "", line_no + 1, 0))
@@ -285,11 +261,7 @@ def scan_source(source_text):
     tokens.append(make_token(TOKEN_EOF, "", line_no + 1, 0))
     return tokens
 
-
-# ============================================================================
 # PRETTY PRINTER
-# ============================================================================
-
 def tokens_to_pretty_lines(tokens):
     """
     Format tokens into human-readable output.
