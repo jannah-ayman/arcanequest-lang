@@ -20,7 +20,7 @@ KEYWORDS = {
     "escapeDungeon",   # break
 }
 
-# Data types
+# Data types (also used as casting methods)
 DATATYPES = {"potion", "elixir", "fate", "scroll"}
 
 # Built-in boolean literals
@@ -43,6 +43,8 @@ SINGLE_CHAR_PUNCT = {
     ":", ",", ".",                  # separators
     "+", "-", "*", "/", "%",        # arithmetic
     "<", ">", "=",                  # comparison/assignment
+    "!",                            # unary not (alternative)
+    "~",                            # bitwise not
 }
 
 # Token type constants
@@ -64,7 +66,8 @@ TOKEN_UNKNOWN = "UNKNOWN"
 # REGEX PATTERNS
 _RE_NUMBER = re.compile(r"^\d+(?:\.\d+)?")  # integer or float
 _RE_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*")  # variable names
-_RE_STRING = re.compile(r"^\"(?:[^\"\\]|\\.)*\"")  # double-quoted strings
+_RE_STRING = re.compile(r'^"(?:[^"\\]|\\.)*"')  # double-quoted strings
+_RE_STRING_SINGLE = re.compile(r"^'(?:[^'\\]|\\.)*'")  # single-quoted strings
 _RE_WS = re.compile(r"^[ \t]+")  # whitespace (spaces and tabs)
 
 
@@ -99,6 +102,9 @@ def scan_source(source_text):
     - Comments (marked with -->)
     - Keywords, identifiers, literals
     - Multi-character and single-character operators
+    - Data types (which can also be used as casting methods)
+    - Single and triple-quoted strings (including multi-line)
+    - Unary operators (+, -, !, ~)
     
     Args:
         source_text: String containing source code
@@ -111,6 +117,62 @@ def scan_source(source_text):
     indent_stack = [0]  # Track indentation levels
     indent_unit = None  # First indent determines the standard (e.g., 4 spaces)
     line_no = 0
+    
+    # First pass: handle multi-line strings
+    i = 0
+    processed_lines = []
+    while i < len(lines):
+        line = lines[i]
+        
+        # Check for triple-quoted strings
+        triple_double_start = line.find('"""')
+        triple_single_start = line.find("'''")
+        
+        # Determine which quote appears first
+        if triple_double_start != -1 and (triple_single_start == -1 or triple_double_start < triple_single_start):
+            # Found triple double quotes
+            quote = '"""'
+            start_pos = triple_double_start
+        elif triple_single_start != -1:
+            # Found triple single quotes
+            quote = "'''"
+            start_pos = triple_single_start
+        else:
+            # No triple quotes on this line
+            processed_lines.append(line)
+            i += 1
+            continue
+        
+        # Start of multi-line string - find the end
+        before_quote = line[:start_pos]
+        remaining = line[start_pos + 3:]
+        
+        # Look for closing quote on same line
+        end_pos = remaining.find(quote)
+        if end_pos != -1:
+            # Single-line triple-quoted string
+            processed_lines.append(line)
+            i += 1
+            continue
+        
+        # Multi-line string - collect until closing quote
+        string_content = [line]
+        i += 1
+        found_end = False
+        
+        while i < len(lines):
+            string_content.append(lines[i])
+            if quote in lines[i]:
+                found_end = True
+                i += 1
+                break
+            i += 1
+        
+        # Merge the multi-line string into a single line for tokenization
+        merged = " ".join(string_content)
+        processed_lines.append(merged)
+    
+    lines = processed_lines
 
     for raw_line in lines:
         line_no += 1
@@ -182,6 +244,50 @@ def scan_source(source_text):
                 s = s[span:]
                 continue
 
+            # Try triple-quoted strings first (must come before single quotes)
+            if s.startswith('"""'):
+                # Find the closing triple quotes
+                end = s.find('"""', 3)
+                if end != -1:
+                    lit = s[:end + 3]
+                    tokens.append(make_token(TOKEN_STRING, lit, line_no, col))
+                    col += len(lit)
+                    s = s[len(lit):]
+                    continue
+                else:
+                    # Unclosed triple quote
+                    tokens.append(make_token(TOKEN_UNKNOWN, '"""', line_no, col))
+                    s = s[3:]
+                    col += 3
+                    continue
+            
+            if s.startswith("'''"):
+                # Find the closing triple quotes
+                end = s.find("'''", 3)
+                if end != -1:
+                    lit = s[:end + 3]
+                    tokens.append(make_token(TOKEN_STRING, lit, line_no, col))
+                    col += len(lit)
+                    s = s[len(lit):]
+                    continue
+                else:
+                    # Unclosed triple quote
+                    tokens.append(make_token(TOKEN_UNKNOWN, "'''", line_no, col))
+                    s = s[3:]
+                    col += 3
+                    continue
+
+            # Single and double-quoted strings
+            m = _RE_STRING.match(s)
+            if not m:
+                m = _RE_STRING_SINGLE.match(s)
+            if m:
+                lit = m.group(0)
+                tokens.append(make_token(TOKEN_STRING, lit, line_no, col))
+                col += len(lit)
+                s = s[len(lit):]
+                continue
+
             # Try multi-character operators (longest match first)
             matched = False
             for op in sorted(MULTI_CHAR_OPS, key=lambda x: -len(x)):
@@ -194,20 +300,25 @@ def scan_source(source_text):
             if matched:
                 continue
 
-            # Single-character punctuation
+            # Single-character punctuation (including unary operators)
             if s[0] in SINGLE_CHAR_PUNCT:
-                tokens.append(make_token(TOKEN_PUNCT, s[0], line_no, col))
+                # Determine if +, -, !, ~ are unary operators
+                if s[0] in ('+', '-', '!', '~'):
+                    # Check context to see if it's unary
+                    is_unary = (
+                        not tokens or 
+                        tokens[-1]["type"] in (TOKEN_OPERATOR, TOKEN_NEWLINE, TOKEN_INDENT) or
+                        tokens[-1]["value"] in ('(', '[', '{', ',', ':', '=')
+                    )
+                    if is_unary:
+                        tokens.append(make_token(TOKEN_OPERATOR, s[0], line_no, col))
+                    else:
+                        # Binary + or - operator
+                        tokens.append(make_token(TOKEN_OPERATOR if s[0] in ('+', '-') else TOKEN_PUNCT, s[0], line_no, col))
+                else:
+                    tokens.append(make_token(TOKEN_PUNCT, s[0], line_no, col))
                 col += 1
                 s = s[1:]
-                continue
-
-            # String literals
-            m = _RE_STRING.match(s)
-            if m:
-                lit = m.group(0)
-                tokens.append(make_token(TOKEN_STRING, lit, line_no, col))
-                col += len(lit)
-                s = s[len(lit):]
                 continue
 
             # Number literals
@@ -281,6 +392,7 @@ def tokens_to_pretty_lines(tokens):
         "[": "lbracket", "]": "rbracket",
         "+": "plus", "-": "minus", "*": "star", "/": "slash", "%": "mod",
         "<": "lt", ">": "gt",
+        "!": "not", "~": "bitwise_not",
     }
     
     # Map operator symbols to readable names
@@ -289,6 +401,8 @@ def tokens_to_pretty_lines(tokens):
         "+=": "plus_assign", "-=": "minus_assign",
         "*=": "mult_assign", "/=": "div_assign", "%=": "mod_assign",
         "**": "power", "//": "floor_div",
+        "+": "unary_plus", "-": "unary_minus",
+        "!": "unary_not", "~": "unary_bitwise_not",
     }
     
     for tok in tokens:

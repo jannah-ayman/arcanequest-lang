@@ -72,7 +72,7 @@ Expressions:
 Expr            → BinaryExpr
 BinaryExpr      → UnaryExpr (BinOp UnaryExpr)*
 UnaryExpr       → UnaryOp UnaryExpr | PrimaryExpr
-PrimaryExpr     → Number | String | Literal | Identifier | Call | Attribute | '(' Expr ')'
+PrimaryExpr     → Number | String | Literal | Identifier | CastingCall | Call | Attribute | '(' Expr ')'
 
 Binary Operators (by precedence, low to high):
   1. or
@@ -84,7 +84,18 @@ Binary Operators (by precedence, low to high):
   7. **
 
 Unary Operators:
-  not, +, -
+  not, +, -, !, ~
+
+Casting Methods (using data types):
+------------------------------------
+CastingCall     → DataType '(' Expr ')'
+DataType        → 'potion' | 'elixir' | 'scroll' | 'fate'
+
+Equivalence:
+  potion(x)  → int(x)
+  elixir(x)  → float(x)
+  scroll(x)  → str(x)
+  fate(x)    → bool(x)
 
 Function Calls:
 ---------------
@@ -98,7 +109,7 @@ Attribute       → PrimaryExpr ('.' Identifier)+
 Literals:
 ---------
 Number          → INTEGER | FLOAT
-String          → STRING_LITERAL
+String          → STRING_LITERAL (single, double, or triple quoted)
 Literal         → 'true' | 'false'
 Identifier      → IDENTIFIER
 
@@ -305,7 +316,7 @@ def parse_statement(state):
     Parse a single statement.
     
     Grammar rule:
-    Statement → Comment | KeywordStmt | Assignment | CompoundAssignment 
+    Statement → Comment | String | KeywordStmt | Assignment | CompoundAssignment 
                 | ExprStmt | NEWLINE
     
     Dispatches to appropriate parser based on first token.
@@ -316,6 +327,11 @@ def parse_statement(state):
     if cur["type"] == TOKEN_COMMENT:
         tok = state.advance()
         return Node("Comment", tok["value"], [], tok["lineno"])
+    
+    # String literal as statement (docstring/multi-line comment)
+    if cur["type"] == TOKEN_STRING:
+        tok = state.advance()
+        return Node("Docstring", tok["value"], [], tok["lineno"])
 
     # Keyword statements
     if cur["type"] == TOKEN_KEYWORD:
@@ -325,6 +341,14 @@ def parse_statement(state):
         # Unknown keyword - create generic node
         tok = state.advance()
         return Node("KeywordStmt", tok["value"], [], tok["lineno"])
+
+    # Data type casting calls as statements (e.g., potion("123"))
+    if cur["type"] == TOKEN_DATATYPE:
+        expr = parse_expr(state)
+        if expr.type == "Cast":
+            return Node("ExprStmt", None, [expr], cur["lineno"])
+        state.error(f"Invalid casting statement", cur["lineno"])
+        return None
 
     # Identifier-based statements (assignment, compound assignment, or expression)
     if cur["type"] == TOKEN_IDENTIFIER:
@@ -885,7 +909,7 @@ def parse_unary_or_primary(state):
     Parse unary expressions or primary expressions.
     
     Grammar rule: UnaryExpr → UnaryOp UnaryExpr | PrimaryExpr
-    UnaryOp → 'not' | '+' | '-'
+    UnaryOp → 'not' | '+' | '-' | '!' | '~'
     
     Returns:
         Expression AST node
@@ -893,7 +917,7 @@ def parse_unary_or_primary(state):
     cur = state.current()
     
     # Unary operators
-    if cur["type"] == TOKEN_OPERATOR and cur["value"] in ("not", "+", "-"):
+    if cur["type"] == TOKEN_OPERATOR and cur["value"] in ("not", "+", "-", "!", "~"):
         op = state.advance()
         return Node("UnaryOp", op["value"], [parse_unary_or_primary(state)], op["lineno"])
     
@@ -902,16 +926,17 @@ def parse_unary_or_primary(state):
 
 def parse_primary(state):
     """
-    Parse primary expressions (literals, identifiers, calls, attributes, grouping).
+    Parse primary expressions (literals, identifiers, calls, attributes, grouping, casting).
     
     Grammar rule:
-    PrimaryExpr → Number | String | Literal | Identifier | Call | Attribute | '(' Expr ')'
+    PrimaryExpr → Number | String | Literal | Identifier | CastingCall | Call | Attribute | '(' Expr ')'
     
     Handles:
-    - Literals: 123, 3.14, "hello", true, false
+    - Literals: 123, 3.14, "hello", 'hello', '''multi-line''', true, false
     - Identifiers: variable names
     - Attribute access: obj.attr.subattr
     - Function calls: func(arg1, arg2)
+    - Casting calls: potion(x), elixir(y), scroll(z), fate(w)
     - Parenthesized expressions: (x + y)
     
     Returns:
@@ -928,6 +953,10 @@ def parse_primary(state):
             "LITERAL": "Literal"
         }[tok["type"]]
         return Node(node_type, tok["value"], [], tok["lineno"])
+    
+    # Data type casting: potion(), elixir(), scroll(), fate()
+    if cur["type"] == TOKEN_DATATYPE:
+        return parse_casting_call(state)
     
     # Identifiers (with possible attribute access or function calls)
     if cur["type"] == TOKEN_IDENTIFIER:
@@ -961,6 +990,45 @@ def parse_primary(state):
     state.error(f"Unexpected expression token: {cur['type']} ({cur['value']})", cur["lineno"])
     state.advance()
     return Node("Empty")
+
+
+def parse_casting_call(state):
+    """
+    Parse casting function call using data types.
+    
+    Grammar rule: CastingCall → DataType '(' Expr ')'
+    DataType → 'potion' | 'elixir' | 'scroll' | 'fate'
+    
+    Equivalence:
+        potion(x)  → int(x)    - converts to integer
+        elixir(x)  → float(x)  - converts to floating point
+        scroll(x)  → str(x)    - converts to string
+        fate(x)    → bool(x)   - converts to boolean
+    
+    Examples:
+        potion("123")     → int("123")     = 123
+        elixir("3.14")    → float("3.14")  = 3.14
+        scroll(42)        → str(42)        = "42"
+        fate(1)           → bool(1)        = true
+    
+    Args:
+        state: Parser state
+    
+    Returns:
+        Cast AST node with data type and argument
+    """
+    cast_tok = state.expect([(TOKEN_DATATYPE, None)], "Expected data type for casting")
+    if cast_tok is None:
+        return None
+    
+    node = Node("Cast", cast_tok["value"], [], cast_tok["lineno"])
+    
+    # Parse argument
+    state.expect([(TOKEN_PUNCT, "(")], "Expected '(' after data type")
+    node.add(parse_expr(state))
+    state.expect([(TOKEN_PUNCT, ")")], "Expected ')' after casting argument")
+    
+    return node
 
 
 def parse_call_with_target(state, target_node):
