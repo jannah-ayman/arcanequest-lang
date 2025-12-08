@@ -552,30 +552,6 @@ def parse_function_def(state):
     
     return node
 
-    """
-    Parse class definition.
-    
-    Grammar rule: ClassDef → 'guild' Identifier ':' Block
-    
-    Example:
-        guild Player:
-            quest __init__(name):
-                self.name = name
-    """
-    start = state.expect([(TOKEN_KEYWORD, "guild")], "Expected 'guild' for class def")
-    if start is None:
-        return None
-    
-    # Class name
-    name = state.expect([(TOKEN_IDENTIFIER, None)], "Expected class name")
-    node = Node("ClassDef", name["value"] if name else None, [], start["lineno"])
-    
-    state.expect([(TOKEN_PUNCT, ":")], "Expected ':' after class header")
-    node.add(Node("Body", None, parse_statement_block(state)))
-    
-    return node
-
-
 def parse_return(state):
     """
     Parse return statement.
