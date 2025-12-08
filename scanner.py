@@ -20,7 +20,7 @@ KEYWORDS = {
     "escapeDungeon",   # break
 }
 
-# Data types
+# Data types (can also be used as casting functions)
 DATATYPES = {"potion", "elixir", "fate", "scroll"}
 
 # Built-in boolean literals
@@ -64,7 +64,8 @@ TOKEN_UNKNOWN = "UNKNOWN"
 # REGEX PATTERNS
 _RE_NUMBER = re.compile(r"^\d+(?:\.\d+)?")  # integer or float
 _RE_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*")  # variable names
-_RE_STRING = re.compile(r"^\"(?:[^\"\\]|\\.)*\"")  # double-quoted strings
+_RE_STRING_DOUBLE = re.compile(r'^"(?:[^"\\]|\\.)*"')  # double-quoted strings
+_RE_STRING_SINGLE = re.compile(r"^'(?:[^'\\]|\\.)*'")  # single-quoted strings
 _RE_WS = re.compile(r"^[ \t]+")  # whitespace (spaces and tabs)
 
 
@@ -99,6 +100,7 @@ def scan_source(source_text):
     - Comments (marked with -->)
     - Keywords, identifiers, literals
     - Multi-character and single-character operators
+    - Both single and double quoted strings
     
     Args:
         source_text: String containing source code
@@ -201,8 +203,8 @@ def scan_source(source_text):
                 s = s[1:]
                 continue
 
-            # String literals
-            m = _RE_STRING.match(s)
+            # String literals - try both double and single quotes
+            m = _RE_STRING_DOUBLE.match(s) or _RE_STRING_SINGLE.match(s)
             if m:
                 lit = m.group(0)
                 tokens.append(make_token(TOKEN_STRING, lit, line_no, col))
@@ -334,6 +336,6 @@ def tokens_to_pretty_lines(tokens):
     
     maxlen = max(len(str(v)) for v, _, _ in lines)
     return "\n".join(
-        f"{str(v).ljust(maxlen)}    â†’ {d}    (line {ln})"
+        f"{str(v).ljust(maxlen)}    → {d}    (line {ln})"
         for v, d, ln in lines
     )

@@ -36,6 +36,7 @@ class ParserState:
         self.tokens = tokens
         self.i = 0  # Current token index
         self.errors = []  # List of (line_number, error_message) tuples
+        self.panic_mode = False  # Error recovery mode
 
     def current(self):
         """Get the current token without advancing."""
@@ -50,6 +51,7 @@ class ParserState:
         """Consume and return the current token."""
         tok = self.current()
         self.i += 1
+        self.panic_mode = False  # Exit panic mode when successfully consuming
         return tok
 
     def match(self, ttype=None, value=None):
@@ -70,7 +72,7 @@ class ParserState:
     def expect(self, expected_pairs, msg=None):
         """
         Consume a token if it matches expected type/value pairs.
-        Reports error if no match found.
+        Reports error if no match found but continues parsing.
         
         Args:
             expected_pairs: List of (type, value) tuples to match
@@ -88,15 +90,48 @@ class ParserState:
         return None
 
     def error(self, msg, lineno=None):
-        """Record a parse error."""
+        """Record a parse error and enter panic mode."""
         ln = lineno if lineno is not None else self.current().get("lineno", -1)
         self.errors.append((ln, msg))
+        self.panic_mode = True
+
+    def synchronize(self):
+        """
+        Skip tokens until we find a safe synchronization point.
+        Used for error recovery to continue parsing after errors.
+        """
+        if not self.panic_mode:
+            return
+        
+        # Skip until we find a statement boundary
+        while not self.match(TOKEN_EOF):
+            # Stop at newlines (potential statement start)
+            if self.match(TOKEN_NEWLINE):
+                self.advance()
+                self.panic_mode = False
+                return
+            
+            # Stop at keywords that start statements
+            if self.match(TOKEN_KEYWORD):
+                if self.current()["value"] in ("summon", "spot", "replay", "farm", 
+                                               "quest", "attack", "embark", "reward"):
+                    self.panic_mode = False
+                    return
+            
+            # Stop at dedent (end of block)
+            if self.match(TOKEN_DEDENT):
+                self.panic_mode = False
+                return
+            
+            self.advance()
+        
+        self.panic_mode = False
 
 def parse(tokens):
     """
     Parse a token stream into an ST.
     
-    Grammar rule: Program â†’ Statement* EOF
+    Grammar rule: Program → Statement* EOF
     
     Args:
         tokens: List of token dictionaries from scanner
@@ -126,6 +161,7 @@ def parse_statement_list(state, stop_on=(TOKEN_EOF, TOKEN_DEDENT)):
     Handles:
     - Skipping blank lines (NEWLINE tokens)
     - Stopping at EOF, DEDENT, or other specified tokens
+    - Error recovery via synchronization
     
     Args:
         state: Parser state
@@ -144,9 +180,14 @@ def parse_statement_list(state, stop_on=(TOKEN_EOF, TOKEN_DEDENT)):
     while not (state.match(TOKEN_EOF) or 
                state.match(TOKEN_DEDENT) or 
                state.current()["type"] in stop_on):
+        
         st = parse_statement(state)
         if st:
             stmts.append(st)
+        
+        # If we encountered an error, synchronize
+        if state.panic_mode:
+            state.synchronize()
         
         # Skip trailing blank lines
         while state.match(TOKEN_NEWLINE):
@@ -157,7 +198,7 @@ def parse_statement_list(state, stop_on=(TOKEN_EOF, TOKEN_DEDENT)):
     
     return stmts
 
-# Keyword â†’ Parser function mapping
+# Keyword → Parser function mapping
 KEYWORD_PARSERS = {
     "summon": lambda s: parse_import(s),           # import
     "spot": lambda s: parse_if(s),                 # if
@@ -177,7 +218,7 @@ def parse_statement(state):
     Parse a single statement.
     
     Grammar rule:
-    Statement â†’ Comment | KeywordStmt | Assignment | CompoundAssignment 
+    Statement → Comment | KeywordStmt | Assignment | CompoundAssignment 
                 | ExprStmt | NEWLINE
     
     Dispatches to appropriate parser based on first token.
@@ -197,6 +238,20 @@ def parse_statement(state):
         # Unknown keyword - create generic node
         tok = state.advance()
         return Node("KeywordStmt", tok["value"], [], tok["lineno"])
+
+    # Data type casting functions (e.g., potion(x), scroll(y))
+    if cur["type"] == TOKEN_DATATYPE:
+        next_tok = state.peek(1)
+        if next_tok["type"] == TOKEN_PUNCT and next_tok["value"] == "(":
+            # Treat as function call
+            expr = parse_expr(state)
+            if expr.type == "Call":
+                return Node("ExprStmt", None, [expr], cur["lineno"])
+        
+        # Invalid: datatype used alone
+        state.error(f"Invalid statement: datatype '{cur['value']}' cannot stand alone", cur["lineno"])
+        state.advance()
+        return None
 
     # Identifier-based statements (assignment, compound assignment, or expression)
     if cur["type"] == TOKEN_IDENTIFIER:
@@ -230,25 +285,22 @@ def parse_statement(state):
     if cur["type"] in (TOKEN_NEWLINE, TOKEN_EOF, TOKEN_DEDENT):
         return None
 
-    # Unexpected token - skip to next line
+    # Unexpected token - report and skip
     state.error(f"Unexpected token: {cur['type']} ({cur['value']})", cur["lineno"])
-    while not state.match(TOKEN_NEWLINE) and \
-          not state.match(TOKEN_EOF) and \
-          not state.match(TOKEN_DEDENT):
-        state.advance()
+    state.advance()
     return None
 
 def parse_import(state):
     """
     Parse import statement.
     
-    Grammar rule: ImportStmt â†’ 'summon' Identifier (',' Identifier)*
+    Grammar rule: ImportStmt → 'summon' Identifier (',' Identifier)*
     
     Example: summon math, random, sys
     """
     tok = state.expect([(TOKEN_KEYWORD, "summon")], "Expected 'summon' for import")
     if tok is None:
-        return None
+        return Node("Import", None, [], state.current().get("lineno"))
     
     node = Node("Import", None, [], tok["lineno"])
     
@@ -279,7 +331,7 @@ def parse_assignment(state):
     """
     Parse simple assignment.
     
-    Grammar rule: Assignment â†’ Identifier '=' (InputStmt | Expr)
+    Grammar rule: Assignment → Identifier '=' (InputStmt | Expr)
     
     Examples:
         x = 5
@@ -287,7 +339,7 @@ def parse_assignment(state):
     """
     ident = state.expect([(TOKEN_IDENTIFIER, None)], "Expected identifier in assignment")
     if ident is None:
-        return None
+        return Node("Assignment", None, [], state.current().get("lineno"))
     
     state.expect([(TOKEN_PUNCT, "=")], "Expected '=' in assignment")
     
@@ -305,16 +357,14 @@ def parse_compound_assignment(state):
     """
     Parse compound assignment (sugar for x = x op y).
     
-    Grammar rule: CompoundAssignment â†’ Identifier CompoundOp Expr
-    CompoundOp â†’ '+=' | '-=' | '*=' | '/=' | '%=' | '**='
+    Grammar rule: CompoundAssignment → Identifier CompoundOp Expr
+    CompoundOp → '+=' | '-=' | '*=' | '/=' | '%=' | '**='
     
-    Note: '//' is floor division, but '//=' is not defined as compound operator
-    
-    Example: x += 5  â†’  x = x + 5
+    Example: x += 5  →  x = x + 5
     """
     ident = state.expect([(TOKEN_IDENTIFIER, None)], "Expected identifier in compound assignment")
     if ident is None:
-        return None
+        return Node("Assignment", None, [], state.current().get("lineno"))
     
     op_tok = state.expect([(TOKEN_OPERATOR, None)], "Expected compound operator")
     if op_tok is None or op_tok["value"] not in ("+=", "-=", "*=", "/=", "%=", "**="):
@@ -335,13 +385,13 @@ def parse_input_stmt(state):
     """
     Parse input statement.
     
-    Grammar rule: InputStmt â†’ 'scout' '(' Expr ')'
+    Grammar rule: InputStmt → 'scout' '(' Expr ')'
     
     Example: scout("Enter your name: ")
     """
     start = state.expect([(TOKEN_KEYWORD, "scout")], "Expected 'scout' for input")
     if start is None:
-        return None
+        return Node("Input", None, [], state.current().get("lineno"))
     
     node = Node("Input", None, [], start["lineno"])
     state.expect([(TOKEN_PUNCT, "(")], "Expected '(' after 'scout'")
@@ -355,13 +405,13 @@ def parse_output_stmt(state):
     """
     Parse output/print statement.
     
-    Grammar rule: OutputStmt â†’ 'attack' '(' (Expr (',' Expr)*)? ')'
+    Grammar rule: OutputStmt → 'attack' '(' (Expr (',' Expr)*)? ')'
     
     Example: attack("Hello", name, "!")
     """
     start = state.expect([(TOKEN_KEYWORD, "attack")], "Expected 'attack' for output")
     if start is None:
-        return None
+        return Node("Output", None, [], state.current().get("lineno"))
     
     node = Node("Output", None, [], start["lineno"])
     state.expect([(TOKEN_PUNCT, "(")], "Expected '(' after 'attack'")
@@ -377,12 +427,26 @@ def parse_output_stmt(state):
     state.expect([(TOKEN_PUNCT, ")")], "Expected ')' after attack arguments")
     return node
 
+def parse_condition(state):
+    """
+    Parse a condition expression (used by if, while, etc.)
+    
+    Grammar rule: '(' Expr ')'
+    
+    Returns:
+        Expression node representing the condition
+    """
+    state.expect([(TOKEN_PUNCT, "(")], "Expected '(' before condition")
+    cond = parse_expr(state)
+    state.expect([(TOKEN_PUNCT, ")")], "Expected ')' after condition")
+    return cond
+
 def parse_if(state):
     """
     Parse if-elif-else statement.
     
     Grammar rule:
-    IfStmt â†’ 'spot' '(' Expr ')' ':' Block
+    IfStmt → 'spot' '(' Expr ')' ':' Block
              ('counter' '(' Expr ')' ':' Block)*
              ('dodge' ':' Block)?
     
@@ -396,14 +460,12 @@ def parse_if(state):
     """
     start = state.expect([(TOKEN_KEYWORD, "spot")], "Expected 'spot' for if")
     if start is None:
-        return None
+        return Node("If", None, [], state.current().get("lineno"))
     
     node = Node("If", None, [], start["lineno"])
     
-    # Parse condition
-    state.expect([(TOKEN_PUNCT, "(")], "Expected '(' after 'spot'")
-    cond = parse_expr(state)
-    state.expect([(TOKEN_PUNCT, ")")], "Expected ')' after if condition")
+    # Parse condition using shared function
+    cond = parse_condition(state)
     state.expect([(TOKEN_PUNCT, ":")], "Expected ':' after if header")
     
     # Parse then block
@@ -414,9 +476,7 @@ def parse_if(state):
     # Parse elif clauses (counter)
     while state.match(TOKEN_KEYWORD, "counter"):
         state.advance()
-        state.expect([(TOKEN_PUNCT, "(")], "Expected '(' after 'counter'")
-        ccond = parse_expr(state)
-        state.expect([(TOKEN_PUNCT, ")")], "Expected ')' after counter condition")
+        ccond = parse_condition(state)
         state.expect([(TOKEN_PUNCT, ":")], "Expected ':' after counter header")
         cbody = parse_statement_block(state)
         
@@ -437,7 +497,7 @@ def parse_while(state):
     """
     Parse while loop.
     
-    Grammar rule: WhileStmt â†’ 'replay' '(' Expr ')' ':' Block
+    Grammar rule: WhileStmt → 'replay' '(' Expr ')' ':' Block
     
     Example:
         replay (x > 0):
@@ -445,14 +505,12 @@ def parse_while(state):
     """
     start = state.expect([(TOKEN_KEYWORD, "replay")], "Expected 'replay' for while")
     if start is None:
-        return None
+        return Node("While", None, [], state.current().get("lineno"))
     
     node = Node("While", None, [], start["lineno"])
     
-    # Parse condition
-    state.expect([(TOKEN_PUNCT, "(")], "Expected '(' after 'replay'")
-    cond = parse_expr(state)
-    state.expect([(TOKEN_PUNCT, ")")], "Expected ')' after while condition")
+    # Parse condition using shared function
+    cond = parse_condition(state)
     state.expect([(TOKEN_PUNCT, ":")], "Expected ':' after while header")
     
     # Parse body
@@ -466,7 +524,7 @@ def parse_for(state):
     """
     Parse for loop.
     
-    Grammar rule: ForStmt â†’ 'farm' Identifier 'in' Expr ':' Block
+    Grammar rule: ForStmt → 'farm' Identifier 'in' Expr ':' Block
     
     Example:
         farm item in items:
@@ -474,7 +532,7 @@ def parse_for(state):
     """
     start = state.expect([(TOKEN_KEYWORD, "farm")], "Expected 'farm' for for-loop")
     if start is None:
-        return None
+        return Node("For", None, [], state.current().get("lineno"))
     
     node = Node("For", None, [], start["lineno"])
     
@@ -504,8 +562,8 @@ def parse_function_def(state):
     """
     Parse function definition.
     
-    Grammar rule: FunctionDef â†’ 'quest' Identifier '(' ParamList? ')' ':' Block
-    ParamList â†’ Identifier (',' Identifier)*
+    Grammar rule: FunctionDef → 'quest' Identifier '(' ParamList? ')' ':' Block
+    ParamList → Identifier (',' Identifier)*
     
     Example:
         quest greet(name, age):
@@ -513,7 +571,7 @@ def parse_function_def(state):
     """
     start = state.expect([(TOKEN_KEYWORD, "quest")], "Expected 'quest' for function def")
     if start is None:
-        return None
+        return Node("FunctionDef", None, [], state.current().get("lineno"))
     
     # Function name
     name = state.expect([(TOKEN_IDENTIFIER, None)], "Expected function name")
@@ -539,47 +597,26 @@ def parse_function_def(state):
     
     return node
 
-    """
-    Parse class definition.
-    
-    Grammar rule: ClassDef â†’ 'guild' Identifier ':' Block
-    
-    Example:
-        guild Player:
-            quest __init__(name):
-                self.name = name
-    """
-    start = state.expect([(TOKEN_KEYWORD, "guild")], "Expected 'guild' for class def")
-    if start is None:
-        return None
-    
-    # Class name
-    name = state.expect([(TOKEN_IDENTIFIER, None)], "Expected class name")
-    node = Node("ClassDef", name["value"] if name else None, [], start["lineno"])
-    
-    state.expect([(TOKEN_PUNCT, ":")], "Expected ':' after class header")
-    node.add(Node("Body", None, parse_statement_block(state)))
-    
-    return node
-
 
 def parse_return(state):
     """
     Parse return statement.
     
-    Grammar rule: Return â†’ 'reward' Expr
+    Grammar rule: Return → 'reward' Expr
     
     Example: reward x + 5
     """
     start = state.expect([(TOKEN_KEYWORD, "reward")], "Expected 'reward' for return")
-    return Node("Return", None, [parse_expr(state)], start["lineno"]) if start else None
+    if start is None:
+        return Node("Return", None, [], state.current().get("lineno"))
+    return Node("Return", None, [parse_expr(state)], start["lineno"])
 
 def parse_try_except(state):
     """
     Parse try-except-finally statement.
     
     Grammar rule:
-    TryExcept â†’ 'embark' ':' Block
+    TryExcept → 'embark' ':' Block
                 ('gameOver' Identifier? ':' Block)*
                 ('savePoint' ':' Block)?
     
@@ -593,7 +630,7 @@ def parse_try_except(state):
     """
     start = state.expect([(TOKEN_KEYWORD, "embark")], "Expected 'embark' for try")
     if start is None:
-        return None
+        return Node("Try", None, [], state.current().get("lineno"))
     
     node = Node("Try", None, [], start["lineno"])
     state.expect([(TOKEN_PUNCT, ":")], "Expected ':' after embark")
@@ -619,14 +656,15 @@ def parse_statement_block(state):
     """
     Parse an indented block of statements.
     
-    Grammar rule: Block â†’ NEWLINE INDENT Statement+ DEDENT
+    Grammar rule: Block → NEWLINE INDENT Statement+ DEDENT
     
     Used for function bodies, loop bodies, if-blocks, etc.
     """
     # Expect newline before indent
     if not state.match(TOKEN_NEWLINE):
         state.error("Expected NEWLINE before block", state.current().get("lineno"))
-    state.advance()
+    else:
+        state.advance()
     
     # Expect indent
     if not state.match(TOKEN_INDENT):
@@ -645,102 +683,143 @@ def parse_statement_block(state):
     
     return stmts
 
-# Operator precedence table (lower number = lower precedence)
-_PRECEDENCE = {
-    "or": 1,      # logical OR
-    "and": 2,     # logical AND
-    "not": 3,     # logical NOT (unary)
-    "==": 4, "!=": 4, "<": 4, ">": 4, "<=": 4, ">=": 4,  # comparison
-    "+": 5, "-": 5,                                       # addition/subtraction
-    "*": 6, "/": 6, "//": 6, "%": 6,                     # multiplication/division/modulo
-    "**": 7,                                              # exponentiation
-}
-
-def get_precedence(tok):
-    """
-    Get operator precedence from token.
-    
-    Returns:
-        Integer precedence level, or -1 if not an operator
-    """
-    if tok and tok["type"] in (TOKEN_OPERATOR, TOKEN_PUNCT):
-        return _PRECEDENCE.get(tok["value"], -1)
-    return -1
-
+# ==============================================================================
+# EXPRESSION PARSING - Traditional Factor/Term Approach
+# ==============================================================================
 
 def parse_expr(state):
     """
-    Parse an expression using precedence climbing.
+    Parse expression - top level (logical OR).
     
-    Grammar rule: Expr â†’ BinaryExpr
-    
-    Entry point for all expression parsing.
+    Grammar rule: Expr → LogicalOrExpr
     """
-    return parse_binop(state, 0)
+    return parse_logical_or(state)
 
-
-def parse_binop(state, min_prec):
+def parse_logical_or(state):
     """
-    Parse binary operations with precedence climbing algorithm.
+    Parse logical OR expression.
     
-    Grammar rule: BinaryExpr â†’ UnaryExpr (BinOp UnaryExpr)*
-    
-    This implements operator precedence without recursion per precedence level.
-    
-    Args:
-        state: Parser state
-        min_prec: Minimum precedence to parse at this level
-    
-    Returns:
-        Expression ST node
+    Grammar rule: LogicalOrExpr → LogicalAndExpr ('or' LogicalAndExpr)*
     """
-    left = parse_unary_or_primary(state)
+    left = parse_logical_and(state)
     
-    # Climb precedence levels
-    while get_precedence(state.current()) >= min_prec:
+    while state.match(TOKEN_OPERATOR, "or"):
         op = state.advance()
-        # Parse right side with higher precedence
-        right = parse_binop(state, get_precedence(op) + 1)
+        right = parse_logical_and(state)
+        left = Node("BinaryOp", "or", [left, right], op["lineno"])
+    
+    return left
+
+def parse_logical_and(state):
+    """
+    Parse logical AND expression.
+    
+    Grammar rule: LogicalAndExpr → ComparisonExpr ('and' ComparisonExpr)*
+    """
+    left = parse_comparison(state)
+    
+    while state.match(TOKEN_OPERATOR, "and"):
+        op = state.advance()
+        right = parse_comparison(state)
+        left = Node("BinaryOp", "and", [left, right], op["lineno"])
+    
+    return left
+
+def parse_comparison(state):
+    """
+    Parse comparison expression.
+    
+    Grammar rule: ComparisonExpr → AddExpr (CompOp AddExpr)*
+    CompOp → '==' | '!=' | '<' | '>' | '<=' | '>='
+    """
+    left = parse_add_expr(state)
+    
+    while state.current()["type"] in (TOKEN_OPERATOR, TOKEN_PUNCT) and \
+          state.current()["value"] in ("==", "!=", "<", ">", "<=", ">="):
+        op = state.advance()
+        right = parse_add_expr(state)
         left = Node("BinaryOp", op["value"], [left, right], op["lineno"])
     
     return left
 
-
-def parse_unary_or_primary(state):
+def parse_add_expr(state):
     """
-    Parse unary expressions or primary expressions.
+    Parse addition/subtraction expression (traditional "expression" level).
     
-    Grammar rule: UnaryExpr â†’ UnaryOp UnaryExpr | PrimaryExpr
-    UnaryOp â†’ 'not' | '+' | '-'
+    Grammar rule: AddExpr → Term (('+' | '-') Term)*
+    """
+    left = parse_term(state)
     
-    Returns:
-        Expression ST node
+    while state.match(TOKEN_PUNCT) and state.current()["value"] in ("+", "-"):
+        op = state.advance()
+        right = parse_term(state)
+        left = Node("BinaryOp", op["value"], [left, right], op["lineno"])
+    
+    return left
+
+def parse_term(state):
+    """
+    Parse multiplication/division/modulo expression (traditional "term" level).
+    
+    Grammar rule: Term → Exponent (('*' | '/' | '//' | '%') Exponent)*
+    """
+    left = parse_exponent(state)
+    
+    while (state.match(TOKEN_PUNCT) and state.current()["value"] in ("*", "/", "%")) or \
+          (state.match(TOKEN_OPERATOR) and state.current()["value"] == "//"):
+        op = state.advance()
+        right = parse_exponent(state)
+        left = Node("BinaryOp", op["value"], [left, right], op["lineno"])
+    
+    return left
+
+def parse_exponent(state):
+    """
+    Parse exponentiation expression.
+    
+    Grammar rule: Exponent → Unary ('**' Unary)*
+    
+    Note: Exponentiation is right-associative
+    """
+    left = parse_unary(state)
+    
+    if state.match(TOKEN_OPERATOR, "**"):
+        op = state.advance()
+        # Right-associative: parse the rest as another exponent
+        right = parse_exponent(state)
+        return Node("BinaryOp", "**", [left, right], op["lineno"])
+    
+    return left
+
+def parse_unary(state):
+    """
+    Parse unary expression.
+    
+    Grammar rule: Unary → UnaryOp Unary | Factor
+    UnaryOp → 'not' | '+' | '-'
     """
     cur = state.current()
     
     # Unary operators
     if cur["type"] == TOKEN_OPERATOR and cur["value"] in ("not", "+", "-"):
         op = state.advance()
-        return Node("UnaryOp", op["value"], [parse_unary_or_primary(state)], op["lineno"])
+        return Node("UnaryOp", op["value"], [parse_unary(state)], op["lineno"])
     
-    return parse_primary(state)
+    return parse_factor(state)
 
-def parse_primary(state):
+def parse_factor(state):
     """
-    Parse primary expressions (literals, identifiers, calls, attributes, grouping).
+    Parse factor (primary expressions with postfix operations).
     
-    Grammar rule:
-    PrimaryExpr â†’ Number | String | Literal | Identifier | Call | Attribute | '(' Expr ')'
+    Grammar rule: Factor → Primary (('.' Identifier) | ('(' ArgList? ')'))*
     
     Handles:
     - Literals: 123, 3.14, "hello", true, false
     - Identifiers: variable names
     - Attribute access: obj.attr.subattr
     - Function calls: func(arg1, arg2)
+    - Casting functions: potion(x), scroll(y)
     - Parenthesized expressions: (x + y)
-    
-    Returns:
-        Expression ST node
     """
     cur = state.current()
     
@@ -752,28 +831,24 @@ def parse_primary(state):
             "STRING": "String",
             "LITERAL": "Literal"
         }[tok["type"]]
-        return Node(node_type, tok["value"], [], tok["lineno"])
+        node = Node(node_type, tok["value"], [], tok["lineno"])
+        return node
+    
+    # Data type casting functions: potion(x), elixir(y), fate(z), scroll(w)
+    if cur["type"] == TOKEN_DATATYPE:
+        node = Node("Identifier", cur["value"], [], cur["lineno"])
+        state.advance()
+        
+        # Handle attribute access and function calls
+        return parse_postfix_ops(state, node)
     
     # Identifiers (with possible attribute access or function calls)
     if cur["type"] == TOKEN_IDENTIFIER:
         node = Node("Identifier", cur["value"], [], cur["lineno"])
         state.advance()
         
-        # Handle attribute access: obj.attr.subattr...
-        while state.match(TOKEN_PUNCT, "."):
-            state.advance()
-            if state.match(TOKEN_IDENTIFIER):
-                attr = state.advance()
-                node = Node("Attribute", attr["value"], [node], attr["lineno"])
-            else:
-                state.error("Expected identifier after '.'", state.current().get("lineno"))
-                break
-        
-        # Handle function call: func(args)
-        if state.match(TOKEN_PUNCT, "("):
-            return parse_call_with_target(state, node)
-        
-        return node
+        # Handle attribute access and function calls
+        return parse_postfix_ops(state, node)
     
     # Parenthesized expression: (expr)
     if cur["type"] == TOKEN_PUNCT and cur["value"] == "(":
@@ -785,15 +860,49 @@ def parse_primary(state):
     # Unexpected token in expression
     state.error(f"Unexpected expression token: {cur['type']} ({cur['value']})", cur["lineno"])
     state.advance()
-    return Node("Empty")
+    return Node("Empty", None, [], cur.get("lineno", -1))
+
+
+def parse_postfix_ops(state, node):
+    """
+    Parse postfix operations (attribute access and function calls).
+    
+    Grammar: ('.' Identifier | '(' ArgList? ')')*
+    
+    Args:
+        state: Parser state
+        node: Base node to apply operations to
+    
+    Returns:
+        Node with postfix operations applied
+    """
+    while True:
+        # Attribute access: obj.attr
+        if state.match(TOKEN_PUNCT, "."):
+            state.advance()
+            if state.match(TOKEN_IDENTIFIER):
+                attr = state.advance()
+                node = Node("Attribute", attr["value"], [node], attr["lineno"])
+            else:
+                state.error("Expected identifier after '.'", state.current().get("lineno"))
+                break
+        
+        # Function call: func(args)
+        elif state.match(TOKEN_PUNCT, "("):
+            node = parse_call_with_target(state, node)
+        
+        else:
+            break
+    
+    return node
 
 
 def parse_call_with_target(state, target_node):
     """
     Parse function call with a known target expression.
     
-    Grammar rule: Call â†’ PrimaryExpr '(' ArgList? ')'
-    ArgList â†’ Expr (',' Expr)*
+    Grammar rule: Call → PrimaryExpr '(' ArgList? ')'
+    ArgList → Expr (',' Expr)*
     
     Args:
         state: Parser state
@@ -805,6 +914,7 @@ def parse_call_with_target(state, target_node):
     Example:
         func(1, 2, 3)
         obj.method(x, y)
+        potion(42)
     """
     lpar = state.expect([(TOKEN_PUNCT, "(")], "Expected '(' for function call")
     args = []
