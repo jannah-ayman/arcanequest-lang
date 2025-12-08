@@ -53,10 +53,6 @@ FunctionDef     → 'quest' Identifier '(' ParamList? ')' ':' Block
 ParamList       → Identifier (',' Identifier)*
 Return          → 'reward' Expr
 
-Classes:
---------
-ClassDef        → 'guild' Identifier ':' Block
-
 Exception Handling:
 ------------------
 TryExcept       → 'embark' ':' Block
@@ -291,7 +287,6 @@ KEYWORD_PARSERS = {
     "replay": lambda s: parse_while(s),            # while
     "farm": lambda s: parse_for(s),                # for
     "quest": lambda s: parse_function_def(s),      # function def
-    "guild": lambda s: parse_class_def(s),         # class def
     "attack": lambda s: parse_output_stmt(s),      # print/output
     "scout": lambda s: parse_input_stmt(s),        # input
     "embark": lambda s: parse_try_except(s),       # try-except
@@ -696,8 +691,6 @@ def parse_function_def(state):
     
     return node
 
-
-def parse_class_def(state):
     """
     Parse class definition.
     
