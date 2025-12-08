@@ -2,8 +2,6 @@ from scanner import *
 
 class Node:
     """
-    Abstract Syntax Tree (AST) node.
-    
     Attributes:
         type: Node type (e.g., "Assignment", "BinaryOp", "If")
         value: Optional value (e.g., operator symbol, identifier name)
@@ -21,7 +19,7 @@ class Node:
         self.children.append(node)
 
     def pretty(self, indent=0):
-        """Generate indented string representation of the AST."""
+        """Generate indented string representation of the ST."""
         pad = "  " * indent
         val = f": {self.value}" if self.value is not None else ""
         lineinfo = f" (line {self.lineno})" if self.lineno else ""
@@ -96,7 +94,7 @@ class ParserState:
 
 def parse(tokens):
     """
-    Parse a token stream into an AST.
+    Parse a token stream into an ST.
     
     Grammar rule: Program → Statement* EOF
     
@@ -535,7 +533,7 @@ def parse_function_def(state):
     state.expect([(TOKEN_PUNCT, ")")], "Expected ')' after parameters")
     state.expect([(TOKEN_PUNCT, ":")], "Expected ':' after function header")
     
-    # Add params and body to AST
+    # Add params and body to ST
     node.add(Node("Params", None, [Node("Param", pname, [], None) for pname in params]))
     node.add(Node("Body", None, parse_statement_block(state)))
     
@@ -694,7 +692,7 @@ def parse_binop(state, min_prec):
         min_prec: Minimum precedence to parse at this level
     
     Returns:
-        Expression AST node
+        Expression ST node
     """
     left = parse_unary_or_primary(state)
     
@@ -716,7 +714,7 @@ def parse_unary_or_primary(state):
     UnaryOp → 'not' | '+' | '-'
     
     Returns:
-        Expression AST node
+        Expression ST node
     """
     cur = state.current()
     
@@ -743,7 +741,7 @@ def parse_primary(state):
     - Parenthesized expressions: (x + y)
     
     Returns:
-        Expression AST node
+        Expression ST node
     """
     cur = state.current()
     
@@ -800,10 +798,10 @@ def parse_call_with_target(state, target_node):
     
     Args:
         state: Parser state
-        target_node: AST node for the function being called
+        target_node: ST node for the function being called
     
     Returns:
-        Call AST node with target and arguments as children
+        Call ST node with target and arguments as children
     
     Example:
         func(1, 2, 3)
