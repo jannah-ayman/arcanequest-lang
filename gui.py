@@ -8,7 +8,7 @@ class ArcaneQuestIDE:
     
     def __init__(self, root):
         self.root = root
-        self.root.title("⚔️ ArcaneQuest IDE — Scanner + Parser")
+        self.root.title("ArcaneQuest IDE — Scanner + Parser")
         self.root.configure(bg="#1a1a1a")  # Dark theme background
         self._apply_style()
         self._build_ui()
@@ -39,7 +39,7 @@ class ArcaneQuestIDE:
         left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
 
         # Section title
-        tk.Label(left_frame, text="🧾 Source (.aq):", bg="#1a1a1a",
+        tk.Label(left_frame, text="📂 Source (.aq):", bg="#1a1a1a",
                  fg="#4FC3F7", font=("Consolas", 10, "bold")).pack(anchor="w")
 
         # Source code text editor
@@ -82,7 +82,7 @@ class ArcaneQuestIDE:
         right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
         # Scanner output section
-        tk.Label(right_frame, text="🔎 Scanner Output:", fg="#81C784",
+        tk.Label(right_frame, text="🔍 Scanner Output:", fg="#81C784",
                  bg="#1a1a1a", font=("Consolas", 10, "bold")).pack(anchor="w")
         self.scan_output = scrolledtext.ScrolledText(
             right_frame, height=10, wrap=tk.NONE, font=("Consolas", 10),
@@ -143,7 +143,7 @@ class ArcaneQuestIDE:
             
             if errors:
                 # Display errors with partial parse tree
-                header = f"⚠️ Parsing failed: {len(errors)} error(s)\n"
+                header = f"âš ï¸ Parsing failed: {len(errors)} error(s)\n"
                 err_lines = [f"Line {lineno}: {msg}" for lineno, msg in errors]
                 separator = "=" * 60
                 result = (f"{header}\n"
@@ -154,7 +154,7 @@ class ArcaneQuestIDE:
                          f"{tree_str}")
             else:
                 # Success - display parse tree
-                result = f"✅ Parsing successful!\n\nParse tree:\n{tree_str}"
+                result = f"✔️ Parsing successful!\n\nParse tree:\n{tree_str}"
             
             self._display_output(self.parse_output, result)
             

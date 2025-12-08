@@ -96,7 +96,7 @@ def parse(tokens):
     """
     Parse a token stream into an ST.
     
-    Grammar rule: Program → Statement* EOF
+    Grammar rule: Program â†’ Statement* EOF
     
     Args:
         tokens: List of token dictionaries from scanner
@@ -157,7 +157,7 @@ def parse_statement_list(state, stop_on=(TOKEN_EOF, TOKEN_DEDENT)):
     
     return stmts
 
-# Keyword → Parser function mapping
+# Keyword â†’ Parser function mapping
 KEYWORD_PARSERS = {
     "summon": lambda s: parse_import(s),           # import
     "spot": lambda s: parse_if(s),                 # if
@@ -177,7 +177,7 @@ def parse_statement(state):
     Parse a single statement.
     
     Grammar rule:
-    Statement → Comment | String | KeywordStmt | Assignment | CompoundAssignment 
+    Statement â†’ Comment | KeywordStmt | Assignment | CompoundAssignment 
                 | ExprStmt | NEWLINE
     
     Dispatches to appropriate parser based on first token.
@@ -188,11 +188,6 @@ def parse_statement(state):
     if cur["type"] == TOKEN_COMMENT:
         tok = state.advance()
         return Node("Comment", tok["value"], [], tok["lineno"])
-    
-    # String literal as statement (docstring/multi-line comment)
-    if cur["type"] == TOKEN_STRING:
-        tok = state.advance()
-        return Node("Docstring", tok["value"], [], tok["lineno"])
 
     # Keyword statements
     if cur["type"] == TOKEN_KEYWORD:
@@ -202,14 +197,6 @@ def parse_statement(state):
         # Unknown keyword - create generic node
         tok = state.advance()
         return Node("KeywordStmt", tok["value"], [], tok["lineno"])
-
-    # Data type casting calls as statements (e.g., potion("123"))
-    if cur["type"] == TOKEN_DATATYPE:
-        expr = parse_expr(state)
-        if expr.type == "Cast":
-            return Node("ExprStmt", None, [expr], cur["lineno"])
-        state.error(f"Invalid casting statement", cur["lineno"])
-        return None
 
     # Identifier-based statements (assignment, compound assignment, or expression)
     if cur["type"] == TOKEN_IDENTIFIER:
@@ -255,7 +242,7 @@ def parse_import(state):
     """
     Parse import statement.
     
-    Grammar rule: ImportStmt → 'summon' Identifier (',' Identifier)*
+    Grammar rule: ImportStmt â†’ 'summon' Identifier (',' Identifier)*
     
     Example: summon math, random, sys
     """
@@ -292,7 +279,7 @@ def parse_assignment(state):
     """
     Parse simple assignment.
     
-    Grammar rule: Assignment → Identifier '=' (InputStmt | Expr)
+    Grammar rule: Assignment â†’ Identifier '=' (InputStmt | Expr)
     
     Examples:
         x = 5
@@ -318,12 +305,12 @@ def parse_compound_assignment(state):
     """
     Parse compound assignment (sugar for x = x op y).
     
-    Grammar rule: CompoundAssignment → Identifier CompoundOp Expr
-    CompoundOp → '+=' | '-=' | '*=' | '/=' | '%=' | '**='
+    Grammar rule: CompoundAssignment â†’ Identifier CompoundOp Expr
+    CompoundOp â†’ '+=' | '-=' | '*=' | '/=' | '%=' | '**='
     
     Note: '//' is floor division, but '//=' is not defined as compound operator
     
-    Example: x += 5  →  x = x + 5
+    Example: x += 5  â†’  x = x + 5
     """
     ident = state.expect([(TOKEN_IDENTIFIER, None)], "Expected identifier in compound assignment")
     if ident is None:
@@ -348,7 +335,7 @@ def parse_input_stmt(state):
     """
     Parse input statement.
     
-    Grammar rule: InputStmt → 'scout' '(' Expr ')'
+    Grammar rule: InputStmt â†’ 'scout' '(' Expr ')'
     
     Example: scout("Enter your name: ")
     """
@@ -368,7 +355,7 @@ def parse_output_stmt(state):
     """
     Parse output/print statement.
     
-    Grammar rule: OutputStmt → 'attack' '(' (Expr (',' Expr)*)? ')'
+    Grammar rule: OutputStmt â†’ 'attack' '(' (Expr (',' Expr)*)? ')'
     
     Example: attack("Hello", name, "!")
     """
@@ -395,7 +382,7 @@ def parse_if(state):
     Parse if-elif-else statement.
     
     Grammar rule:
-    IfStmt → 'spot' '(' Expr ')' ':' Block
+    IfStmt â†’ 'spot' '(' Expr ')' ':' Block
              ('counter' '(' Expr ')' ':' Block)*
              ('dodge' ':' Block)?
     
@@ -450,7 +437,7 @@ def parse_while(state):
     """
     Parse while loop.
     
-    Grammar rule: WhileStmt → 'replay' '(' Expr ')' ':' Block
+    Grammar rule: WhileStmt â†’ 'replay' '(' Expr ')' ':' Block
     
     Example:
         replay (x > 0):
@@ -479,7 +466,7 @@ def parse_for(state):
     """
     Parse for loop.
     
-    Grammar rule: ForStmt → 'farm' Identifier 'in' Expr ':' Block
+    Grammar rule: ForStmt â†’ 'farm' Identifier 'in' Expr ':' Block
     
     Example:
         farm item in items:
@@ -517,8 +504,8 @@ def parse_function_def(state):
     """
     Parse function definition.
     
-    Grammar rule: FunctionDef → 'quest' Identifier '(' ParamList? ')' ':' Block
-    ParamList → Identifier (',' Identifier)*
+    Grammar rule: FunctionDef â†’ 'quest' Identifier '(' ParamList? ')' ':' Block
+    ParamList â†’ Identifier (',' Identifier)*
     
     Example:
         quest greet(name, age):
@@ -552,11 +539,35 @@ def parse_function_def(state):
     
     return node
 
+    """
+    Parse class definition.
+    
+    Grammar rule: ClassDef â†’ 'guild' Identifier ':' Block
+    
+    Example:
+        guild Player:
+            quest __init__(name):
+                self.name = name
+    """
+    start = state.expect([(TOKEN_KEYWORD, "guild")], "Expected 'guild' for class def")
+    if start is None:
+        return None
+    
+    # Class name
+    name = state.expect([(TOKEN_IDENTIFIER, None)], "Expected class name")
+    node = Node("ClassDef", name["value"] if name else None, [], start["lineno"])
+    
+    state.expect([(TOKEN_PUNCT, ":")], "Expected ':' after class header")
+    node.add(Node("Body", None, parse_statement_block(state)))
+    
+    return node
+
+
 def parse_return(state):
     """
     Parse return statement.
     
-    Grammar rule: Return → 'reward' Expr
+    Grammar rule: Return â†’ 'reward' Expr
     
     Example: reward x + 5
     """
@@ -568,7 +579,7 @@ def parse_try_except(state):
     Parse try-except-finally statement.
     
     Grammar rule:
-    TryExcept → 'embark' ':' Block
+    TryExcept â†’ 'embark' ':' Block
                 ('gameOver' Identifier? ':' Block)*
                 ('savePoint' ':' Block)?
     
@@ -608,7 +619,7 @@ def parse_statement_block(state):
     """
     Parse an indented block of statements.
     
-    Grammar rule: Block → NEWLINE INDENT Statement+ DEDENT
+    Grammar rule: Block â†’ NEWLINE INDENT Statement+ DEDENT
     
     Used for function bodies, loop bodies, if-blocks, etc.
     """
@@ -661,7 +672,7 @@ def parse_expr(state):
     """
     Parse an expression using precedence climbing.
     
-    Grammar rule: Expr → BinaryExpr
+    Grammar rule: Expr â†’ BinaryExpr
     
     Entry point for all expression parsing.
     """
@@ -672,7 +683,7 @@ def parse_binop(state, min_prec):
     """
     Parse binary operations with precedence climbing algorithm.
     
-    Grammar rule: BinaryExpr → UnaryExpr (BinOp UnaryExpr)*
+    Grammar rule: BinaryExpr â†’ UnaryExpr (BinOp UnaryExpr)*
     
     This implements operator precedence without recursion per precedence level.
     
@@ -699,8 +710,8 @@ def parse_unary_or_primary(state):
     """
     Parse unary expressions or primary expressions.
     
-    Grammar rule: UnaryExpr → UnaryOp UnaryExpr | PrimaryExpr
-    UnaryOp → 'not' | '+' | '-' | '!' | '~'
+    Grammar rule: UnaryExpr â†’ UnaryOp UnaryExpr | PrimaryExpr
+    UnaryOp â†’ 'not' | '+' | '-'
     
     Returns:
         Expression ST node
@@ -708,7 +719,7 @@ def parse_unary_or_primary(state):
     cur = state.current()
     
     # Unary operators
-    if cur["type"] == TOKEN_OPERATOR and cur["value"] in ("not", "+", "-", "!", "~"):
+    if cur["type"] == TOKEN_OPERATOR and cur["value"] in ("not", "+", "-"):
         op = state.advance()
         return Node("UnaryOp", op["value"], [parse_unary_or_primary(state)], op["lineno"])
     
@@ -716,17 +727,16 @@ def parse_unary_or_primary(state):
 
 def parse_primary(state):
     """
-    Parse primary expressions (literals, identifiers, calls, attributes, grouping, casting).
+    Parse primary expressions (literals, identifiers, calls, attributes, grouping).
     
     Grammar rule:
-    PrimaryExpr → Number | String | Literal | Identifier | CastingCall | Call | Attribute | '(' Expr ')'
+    PrimaryExpr â†’ Number | String | Literal | Identifier | Call | Attribute | '(' Expr ')'
     
     Handles:
-    - Literals: 123, 3.14, "hello", 'hello', '''multi-line''', true, false
+    - Literals: 123, 3.14, "hello", true, false
     - Identifiers: variable names
     - Attribute access: obj.attr.subattr
     - Function calls: func(arg1, arg2)
-    - Casting calls: potion(x), elixir(y), scroll(z), fate(w)
     - Parenthesized expressions: (x + y)
     
     Returns:
@@ -743,10 +753,6 @@ def parse_primary(state):
             "LITERAL": "Literal"
         }[tok["type"]]
         return Node(node_type, tok["value"], [], tok["lineno"])
-    
-    # Data type casting: potion(), elixir(), scroll(), fate()
-    if cur["type"] == TOKEN_DATATYPE:
-        return parse_casting_call(state)
     
     # Identifiers (with possible attribute access or function calls)
     if cur["type"] == TOKEN_IDENTIFIER:
@@ -782,51 +788,12 @@ def parse_primary(state):
     return Node("Empty")
 
 
-def parse_casting_call(state):
-    """
-    Parse casting function call using data types.
-    
-    Grammar rule: CastingCall → DataType '(' Expr ')'
-    DataType → 'potion' | 'elixir' | 'scroll' | 'fate'
-    
-    Equivalence:
-        potion(x)  → int(x)    - converts to integer
-        elixir(x)  → float(x)  - converts to floating point
-        scroll(x)  → str(x)    - converts to string
-        fate(x)    → bool(x)   - converts to boolean
-    
-    Examples:
-        potion("123")     → int("123")     = 123
-        elixir("3.14")    → float("3.14")  = 3.14
-        scroll(42)        → str(42)        = "42"
-        fate(1)           → bool(1)        = true
-    
-    Args:
-        state: Parser state
-    
-    Returns:
-        Cast ST node with data type and argument
-    """
-    cast_tok = state.expect([(TOKEN_DATATYPE, None)], "Expected data type for casting")
-    if cast_tok is None:
-        return None
-    
-    node = Node("Cast", cast_tok["value"], [], cast_tok["lineno"])
-    
-    # Parse argument
-    state.expect([(TOKEN_PUNCT, "(")], "Expected '(' after data type")
-    node.add(parse_expr(state))
-    state.expect([(TOKEN_PUNCT, ")")], "Expected ')' after casting argument")
-    
-    return node
-
-
 def parse_call_with_target(state, target_node):
     """
     Parse function call with a known target expression.
     
-    Grammar rule: Call → PrimaryExpr '(' ArgList? ')'
-    ArgList → Expr (',' Expr)*
+    Grammar rule: Call â†’ PrimaryExpr '(' ArgList? ')'
+    ArgList â†’ Expr (',' Expr)*
     
     Args:
         state: Parser state
