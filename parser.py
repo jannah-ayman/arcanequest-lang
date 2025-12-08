@@ -102,10 +102,6 @@ Identifier      → IDENTIFIER
 
 from scanner import *
 
-# ============================================================================
-# AST NODE DEFINITION
-# ============================================================================
-
 class Node:
     """
     Abstract Syntax Tree (AST) node.
@@ -135,11 +131,6 @@ class Node:
         for c in self.children:
             out += c.pretty(indent + 1)
         return out
-
-
-# ============================================================================
-# PARSER STATE
-# ============================================================================
 
 class ParserState:
     """
@@ -205,11 +196,6 @@ class ParserState:
         ln = lineno if lineno is not None else self.current().get("lineno", -1)
         self.errors.append((ln, msg))
 
-
-# ============================================================================
-# TOP-LEVEL PARSER
-# ============================================================================
-
 def parse(tokens):
     """
     Parse a token stream into an AST.
@@ -274,11 +260,6 @@ def parse_statement_list(state, stop_on=(TOKEN_EOF, TOKEN_DEDENT)):
             break
     
     return stmts
-
-
-# ============================================================================
-# STATEMENT PARSING
-# ============================================================================
 
 # Keyword → Parser function mapping
 KEYWORD_PARSERS = {
@@ -361,11 +342,6 @@ def parse_statement(state):
         state.advance()
     return None
 
-
-# ============================================================================
-# IMPORT STATEMENT
-# ============================================================================
-
 def parse_import(state):
     """
     Parse import statement.
@@ -402,11 +378,6 @@ def parse_import(state):
             break
     
     return node
-
-
-# ============================================================================
-# ASSIGNMENT STATEMENTS
-# ============================================================================
 
 def parse_assignment(state):
     """
@@ -464,11 +435,6 @@ def parse_compound_assignment(state):
     
     return Node("Assignment", ident["value"], [binop], ident["lineno"])
 
-
-# ============================================================================
-# INPUT/OUTPUT STATEMENTS
-# ============================================================================
-
 def parse_input_stmt(state):
     """
     Parse input statement.
@@ -514,11 +480,6 @@ def parse_output_stmt(state):
     
     state.expect([(TOKEN_PUNCT, ")")], "Expected ')' after attack arguments")
     return node
-
-
-# ============================================================================
-# CONTROL FLOW - CONDITIONALS
-# ============================================================================
 
 def parse_if(state):
     """
@@ -575,11 +536,6 @@ def parse_if(state):
         node.add(Node("Else", None, parse_statement_block(state), state.current().get("lineno")))
     
     return node
-
-
-# ============================================================================
-# CONTROL FLOW - LOOPS
-# ============================================================================
 
 def parse_while(state):
     """
@@ -647,10 +603,6 @@ def parse_for(state):
     
     return node
 
-
-# ============================================================================
-# FUNCTIONS AND CLASSES
-# ============================================================================
 
 def parse_function_def(state):
     """
@@ -726,11 +678,6 @@ def parse_return(state):
     start = state.expect([(TOKEN_KEYWORD, "reward")], "Expected 'reward' for return")
     return Node("Return", None, [parse_expr(state)], start["lineno"]) if start else None
 
-
-# ============================================================================
-# EXCEPTION HANDLING
-# ============================================================================
-
 def parse_try_except(state):
     """
     Parse try-except-finally statement.
@@ -772,11 +719,6 @@ def parse_try_except(state):
     
     return node
 
-
-# ============================================================================
-# BLOCK PARSING
-# ============================================================================
-
 def parse_statement_block(state):
     """
     Parse an indented block of statements.
@@ -806,11 +748,6 @@ def parse_statement_block(state):
         state.advance()
     
     return stmts
-
-
-# ============================================================================
-# EXPRESSION PARSING (PRECEDENCE CLIMBING)
-# ============================================================================
 
 # Operator precedence table (lower number = lower precedence)
 _PRECEDENCE = {
