@@ -10,7 +10,7 @@ Program         → Statement* EOF
 Statement       → Comment | KeywordStmt | Assignment | CompoundAssignment 
                   | ExprStmt | NEWLINE
 KeywordStmt     → ImportStmt | IfStmt | WhileStmt | ForStmt 
-                  | FunctionDef | OutputStmt | InputStmt
+                  | FunctionDef | ClassDef | OutputStmt | InputStmt
                   | TryExcept | Return | Continue | Break
 
 Comments:
@@ -26,6 +26,8 @@ Variable Assignment:
 Assignment      → Identifier '=' (InputStmt | Expr)
 CompoundAssignment → Identifier CompoundOp Expr
 CompoundOp      → '+=' | '-=' | '*=' | '/=' | '%=' | '**='
+
+Note: '//' is floor division operator, not '//'= compound assignment
 
 Input/Output:
 -------------
@@ -49,7 +51,11 @@ Functions:
 ----------
 FunctionDef     → 'quest' Identifier '(' ParamList? ')' ':' Block
 ParamList       → Identifier (',' Identifier)*
-Return          → ('reward' Expr)?
+Return          → 'reward' Expr
+
+Classes:
+--------
+ClassDef        → 'guild' Identifier ':' Block
 
 Exception Handling:
 ------------------
@@ -100,11 +106,14 @@ Identifier      → IDENTIFIER
 
 from scanner import *
 
-# PARSING TREE NODE DEFINITION
+# ============================================================================
+# AST NODE DEFINITION
+# ============================================================================
+
 class Node:
     """
-    Parsing Tree (PT) node.
-
+    Abstract Syntax Tree (AST) node.
+    
     Attributes:
         type: Node type (e.g., "Assignment", "BinaryOp", "If")
         value: Optional value (e.g., operator symbol, identifier name)
@@ -131,7 +140,11 @@ class Node:
             out += c.pretty(indent + 1)
         return out
 
+
+# ============================================================================
 # PARSER STATE
+# ============================================================================
+
 class ParserState:
     """
     Manages parser state including token stream position and errors.
@@ -197,7 +210,10 @@ class ParserState:
         self.errors.append((ln, msg))
 
 
+# ============================================================================
 # TOP-LEVEL PARSER
+# ============================================================================
+
 def parse(tokens):
     """
     Parse a token stream into an AST.
@@ -264,6 +280,9 @@ def parse_statement_list(state, stop_on=(TOKEN_EOF, TOKEN_DEDENT)):
     return stmts
 
 
+# ============================================================================
+# STATEMENT PARSING
+# ============================================================================
 
 # Keyword → Parser function mapping
 KEYWORD_PARSERS = {
@@ -272,6 +291,7 @@ KEYWORD_PARSERS = {
     "replay": lambda s: parse_while(s),            # while
     "farm": lambda s: parse_for(s),                # for
     "quest": lambda s: parse_function_def(s),      # function def
+    "guild": lambda s: parse_class_def(s),         # class def
     "attack": lambda s: parse_output_stmt(s),      # print/output
     "scout": lambda s: parse_input_stmt(s),        # input
     "embark": lambda s: parse_try_except(s),       # try-except
@@ -347,7 +367,10 @@ def parse_statement(state):
     return None
 
 
+# ============================================================================
 # IMPORT STATEMENT
+# ============================================================================
+
 def parse_import(state):
     """
     Parse import statement.
@@ -386,7 +409,10 @@ def parse_import(state):
     return node
 
 
+# ============================================================================
 # ASSIGNMENT STATEMENTS
+# ============================================================================
+
 def parse_assignment(state):
     """
     Parse simple assignment.
@@ -444,7 +470,10 @@ def parse_compound_assignment(state):
     return Node("Assignment", ident["value"], [binop], ident["lineno"])
 
 
+# ============================================================================
 # INPUT/OUTPUT STATEMENTS
+# ============================================================================
+
 def parse_input_stmt(state):
     """
     Parse input statement.
@@ -492,7 +521,10 @@ def parse_output_stmt(state):
     return node
 
 
+# ============================================================================
 # CONTROL FLOW - CONDITIONALS
+# ============================================================================
+
 def parse_if(state):
     """
     Parse if-elif-else statement.
@@ -550,7 +582,10 @@ def parse_if(state):
     return node
 
 
+# ============================================================================
 # CONTROL FLOW - LOOPS
+# ============================================================================
+
 def parse_while(state):
     """
     Parse while loop.
@@ -618,7 +653,10 @@ def parse_for(state):
     return node
 
 
-# FUNCTIONS 
+# ============================================================================
+# FUNCTIONS AND CLASSES
+# ============================================================================
+
 def parse_function_def(state):
     """
     Parse function definition.
@@ -659,6 +697,31 @@ def parse_function_def(state):
     return node
 
 
+def parse_class_def(state):
+    """
+    Parse class definition.
+    
+    Grammar rule: ClassDef → 'guild' Identifier ':' Block
+    
+    Example:
+        guild Player:
+            quest __init__(name):
+                self.name = name
+    """
+    start = state.expect([(TOKEN_KEYWORD, "guild")], "Expected 'guild' for class def")
+    if start is None:
+        return None
+    
+    # Class name
+    name = state.expect([(TOKEN_IDENTIFIER, None)], "Expected class name")
+    node = Node("ClassDef", name["value"] if name else None, [], start["lineno"])
+    
+    state.expect([(TOKEN_PUNCT, ":")], "Expected ':' after class header")
+    node.add(Node("Body", None, parse_statement_block(state)))
+    
+    return node
+
+
 def parse_return(state):
     """
     Parse return statement.
@@ -671,7 +734,10 @@ def parse_return(state):
     return Node("Return", None, [parse_expr(state)], start["lineno"]) if start else None
 
 
+# ============================================================================
 # EXCEPTION HANDLING
+# ============================================================================
+
 def parse_try_except(state):
     """
     Parse try-except-finally statement.
@@ -714,7 +780,10 @@ def parse_try_except(state):
     return node
 
 
+# ============================================================================
 # BLOCK PARSING
+# ============================================================================
+
 def parse_statement_block(state):
     """
     Parse an indented block of statements.
@@ -746,7 +815,10 @@ def parse_statement_block(state):
     return stmts
 
 
+# ============================================================================
 # EXPRESSION PARSING (PRECEDENCE CLIMBING)
+# ============================================================================
+
 # Operator precedence table (lower number = lower precedence)
 _PRECEDENCE = {
     "or": 1,      # logical OR
@@ -813,7 +885,7 @@ def parse_unary_or_primary(state):
     Parse unary expressions or primary expressions.
     
     Grammar rule: UnaryExpr → UnaryOp UnaryExpr | PrimaryExpr
-    UnaryOp → 'not' 
+    UnaryOp → 'not' | '+' | '-'
     
     Returns:
         Expression AST node
@@ -821,7 +893,7 @@ def parse_unary_or_primary(state):
     cur = state.current()
     
     # Unary operators
-    if cur["type"] == TOKEN_OPERATOR and cur["value"] in ("not"):
+    if cur["type"] == TOKEN_OPERATOR and cur["value"] in ("not", "+", "-"):
         op = state.advance()
         return Node("UnaryOp", op["value"], [parse_unary_or_primary(state)], op["lineno"])
     
@@ -861,6 +933,16 @@ def parse_primary(state):
     if cur["type"] == TOKEN_IDENTIFIER:
         node = Node("Identifier", cur["value"], [], cur["lineno"])
         state.advance()
+        
+        # Handle attribute access: obj.attr.subattr...
+        while state.match(TOKEN_PUNCT, "."):
+            state.advance()
+            if state.match(TOKEN_IDENTIFIER):
+                attr = state.advance()
+                node = Node("Attribute", attr["value"], [node], attr["lineno"])
+            else:
+                state.error("Expected identifier after '.'", state.current().get("lineno"))
+                break
         
         # Handle function call: func(args)
         if state.match(TOKEN_PUNCT, "("):
