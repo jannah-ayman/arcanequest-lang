@@ -829,7 +829,7 @@ def parse_casting_call(state):
         state: Parser state
     
     Returns:
-        Cast AST node with data type and argument
+        Cast ST node with data type and argument
     """
     cast_tok = state.expect([(TOKEN_DATATYPE, None)], "Expected data type for casting")
     if cast_tok is None:
