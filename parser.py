@@ -725,7 +725,6 @@ def parse_unary_or_primary(state):
     
     return parse_primary(state)
 
-
 def parse_primary(state):
     """
     Parse primary expressions (literals, identifiers, calls, attributes, grouping).
