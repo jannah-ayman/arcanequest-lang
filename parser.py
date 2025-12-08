@@ -1,130 +1,7 @@
-"""
-ArcaneQuest Parser
-
-GRAMMAR SPECIFICATION:
-======================
-
-Program Structure:
-------------------
-Program         → Statement* EOF
-Statement       → Comment | KeywordStmt | Assignment | CompoundAssignment 
-                  | ExprStmt | NEWLINE
-KeywordStmt     → ImportStmt | IfStmt | WhileStmt | ForStmt 
-                  | FunctionDef | ClassDef | OutputStmt | InputStmt
-                  | TryExcept | Return | Continue | Break
-
-Comments:
----------
-Comment         → COMMENT
-
-Imports:
---------
-ImportStmt      → 'summon' Identifier (',' Identifier)*
-
-Variable Assignment:
--------------------
-Assignment      → Identifier '=' (InputStmt | Expr)
-CompoundAssignment → Identifier CompoundOp Expr
-CompoundOp      → '+=' | '-=' | '*=' | '/=' | '%=' | '**='
-
-Note: '//' is floor division operator, not '//'= compound assignment
-
-Input/Output:
--------------
-InputStmt       → 'scout' '(' Expr ')'
-OutputStmt      → 'attack' '(' (Expr (',' Expr)*)? ')'
-
-Control Flow - Conditionals:
-----------------------------
-IfStmt          → 'spot' '(' Expr ')' ':' Block
-                  ('counter' '(' Expr ')' ':' Block)*
-                  ('dodge' ':' Block)?
-
-Control Flow - Loops:
----------------------
-WhileStmt       → 'replay' '(' Expr ')' ':' Block
-ForStmt         → 'farm' Identifier 'in' Expr ':' Block
-Continue        → 'skipEncounter'
-Break           → 'escapeDungeon'
-
-Functions:
-----------
-FunctionDef     → 'quest' Identifier '(' ParamList? ')' ':' Block
-ParamList       → Identifier (',' Identifier)*
-Return          → 'reward' Expr
-
-Classes:
---------
-ClassDef        → 'guild' Identifier ':' Block
-
-Exception Handling:
-------------------
-TryExcept       → 'embark' ':' Block
-                  ('gameOver' Identifier? ':' Block)*
-                  ('savePoint' ':' Block)?
-
-Blocks:
--------
-Block           → NEWLINE INDENT Statement+ DEDENT
-
-Expressions:
-------------
-Expr            → BinaryExpr
-BinaryExpr      → UnaryExpr (BinOp UnaryExpr)*
-UnaryExpr       → UnaryOp UnaryExpr | PrimaryExpr
-PrimaryExpr     → Number | String | Literal | Identifier | CastingCall | Call | Attribute | '(' Expr ')'
-
-Binary Operators (by precedence, low to high):
-  1. or
-  2. and
-  3. not  (unary)
-  4. ==, !=, <, >, <=, >=
-  5. +, -
-  6. *, /, //, %
-  7. **
-
-Unary Operators:
-  not, +, -, !, ~
-
-Casting Methods (using data types):
-------------------------------------
-CastingCall     → DataType '(' Expr ')'
-DataType        → 'potion' | 'elixir' | 'scroll' | 'fate'
-
-Equivalence:
-  potion(x)  → int(x)
-  elixir(x)  → float(x)
-  scroll(x)  → str(x)
-  fate(x)    → bool(x)
-
-Function Calls:
----------------
-Call            → PrimaryExpr '(' ArgList? ')'
-ArgList         → Expr (',' Expr)*
-
-Attributes:
------------
-Attribute       → PrimaryExpr ('.' Identifier)+
-
-Literals:
----------
-Number          → INTEGER | FLOAT
-String          → STRING_LITERAL (single, double, or triple quoted)
-Literal         → 'true' | 'false'
-Identifier      → IDENTIFIER
-
-"""
-
 from scanner import *
-
-# ============================================================================
-# AST NODE DEFINITION
-# ============================================================================
 
 class Node:
     """
-    Abstract Syntax Tree (AST) node.
-    
     Attributes:
         type: Node type (e.g., "Assignment", "BinaryOp", "If")
         value: Optional value (e.g., operator symbol, identifier name)
@@ -142,7 +19,7 @@ class Node:
         self.children.append(node)
 
     def pretty(self, indent=0):
-        """Generate indented string representation of the AST."""
+        """Generate indented string representation of the ST."""
         pad = "  " * indent
         val = f": {self.value}" if self.value is not None else ""
         lineinfo = f" (line {self.lineno})" if self.lineno else ""
@@ -150,11 +27,6 @@ class Node:
         for c in self.children:
             out += c.pretty(indent + 1)
         return out
-
-
-# ============================================================================
-# PARSER STATE
-# ============================================================================
 
 class ParserState:
     """
@@ -220,14 +92,9 @@ class ParserState:
         ln = lineno if lineno is not None else self.current().get("lineno", -1)
         self.errors.append((ln, msg))
 
-
-# ============================================================================
-# TOP-LEVEL PARSER
-# ============================================================================
-
 def parse(tokens):
     """
-    Parse a token stream into an AST.
+    Parse a token stream into an ST.
     
     Grammar rule: Program → Statement* EOF
     
@@ -290,11 +157,6 @@ def parse_statement_list(state, stop_on=(TOKEN_EOF, TOKEN_DEDENT)):
     
     return stmts
 
-
-# ============================================================================
-# STATEMENT PARSING
-# ============================================================================
-
 # Keyword → Parser function mapping
 KEYWORD_PARSERS = {
     "summon": lambda s: parse_import(s),           # import
@@ -302,7 +164,6 @@ KEYWORD_PARSERS = {
     "replay": lambda s: parse_while(s),            # while
     "farm": lambda s: parse_for(s),                # for
     "quest": lambda s: parse_function_def(s),      # function def
-    "guild": lambda s: parse_class_def(s),         # class def
     "attack": lambda s: parse_output_stmt(s),      # print/output
     "scout": lambda s: parse_input_stmt(s),        # input
     "embark": lambda s: parse_try_except(s),       # try-except
@@ -390,11 +251,6 @@ def parse_statement(state):
         state.advance()
     return None
 
-
-# ============================================================================
-# IMPORT STATEMENT
-# ============================================================================
-
 def parse_import(state):
     """
     Parse import statement.
@@ -431,11 +287,6 @@ def parse_import(state):
             break
     
     return node
-
-
-# ============================================================================
-# ASSIGNMENT STATEMENTS
-# ============================================================================
 
 def parse_assignment(state):
     """
@@ -493,11 +344,6 @@ def parse_compound_assignment(state):
     
     return Node("Assignment", ident["value"], [binop], ident["lineno"])
 
-
-# ============================================================================
-# INPUT/OUTPUT STATEMENTS
-# ============================================================================
-
 def parse_input_stmt(state):
     """
     Parse input statement.
@@ -543,11 +389,6 @@ def parse_output_stmt(state):
     
     state.expect([(TOKEN_PUNCT, ")")], "Expected ')' after attack arguments")
     return node
-
-
-# ============================================================================
-# CONTROL FLOW - CONDITIONALS
-# ============================================================================
 
 def parse_if(state):
     """
@@ -604,11 +445,6 @@ def parse_if(state):
         node.add(Node("Else", None, parse_statement_block(state), state.current().get("lineno")))
     
     return node
-
-
-# ============================================================================
-# CONTROL FLOW - LOOPS
-# ============================================================================
 
 def parse_while(state):
     """
@@ -677,10 +513,6 @@ def parse_for(state):
     return node
 
 
-# ============================================================================
-# FUNCTIONS AND CLASSES
-# ============================================================================
-
 def parse_function_def(state):
     """
     Parse function definition.
@@ -714,14 +546,12 @@ def parse_function_def(state):
     state.expect([(TOKEN_PUNCT, ")")], "Expected ')' after parameters")
     state.expect([(TOKEN_PUNCT, ":")], "Expected ':' after function header")
     
-    # Add params and body to AST
+    # Add params and body to ST
     node.add(Node("Params", None, [Node("Param", pname, [], None) for pname in params]))
     node.add(Node("Body", None, parse_statement_block(state)))
     
     return node
 
-
-def parse_class_def(state):
     """
     Parse class definition.
     
@@ -756,11 +586,6 @@ def parse_return(state):
     """
     start = state.expect([(TOKEN_KEYWORD, "reward")], "Expected 'reward' for return")
     return Node("Return", None, [parse_expr(state)], start["lineno"]) if start else None
-
-
-# ============================================================================
-# EXCEPTION HANDLING
-# ============================================================================
 
 def parse_try_except(state):
     """
@@ -803,11 +628,6 @@ def parse_try_except(state):
     
     return node
 
-
-# ============================================================================
-# BLOCK PARSING
-# ============================================================================
-
 def parse_statement_block(state):
     """
     Parse an indented block of statements.
@@ -837,11 +657,6 @@ def parse_statement_block(state):
         state.advance()
     
     return stmts
-
-
-# ============================================================================
-# EXPRESSION PARSING (PRECEDENCE CLIMBING)
-# ============================================================================
 
 # Operator precedence table (lower number = lower precedence)
 _PRECEDENCE = {
@@ -890,7 +705,7 @@ def parse_binop(state, min_prec):
         min_prec: Minimum precedence to parse at this level
     
     Returns:
-        Expression AST node
+        Expression ST node
     """
     left = parse_unary_or_primary(state)
     
@@ -912,7 +727,7 @@ def parse_unary_or_primary(state):
     UnaryOp → 'not' | '+' | '-' | '!' | '~'
     
     Returns:
-        Expression AST node
+        Expression ST node
     """
     cur = state.current()
     
@@ -922,7 +737,6 @@ def parse_unary_or_primary(state):
         return Node("UnaryOp", op["value"], [parse_unary_or_primary(state)], op["lineno"])
     
     return parse_primary(state)
-
 
 def parse_primary(state):
     """
@@ -940,7 +754,7 @@ def parse_primary(state):
     - Parenthesized expressions: (x + y)
     
     Returns:
-        Expression AST node
+        Expression ST node
     """
     cur = state.current()
     
@@ -1040,10 +854,10 @@ def parse_call_with_target(state, target_node):
     
     Args:
         state: Parser state
-        target_node: AST node for the function being called
+        target_node: ST node for the function being called
     
     Returns:
-        Call AST node with target and arguments as children
+        Call ST node with target and arguments as children
     
     Example:
         func(1, 2, 3)
