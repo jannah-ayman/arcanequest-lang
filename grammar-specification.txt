@@ -1,0 +1,96 @@
+GRAMMAR SPECIFICATION:
+======================
+
+Program Structure:
+------------------
+Program         → Statement* EOF
+Statement       → Comment | KeywordStmt | Assignment | CompoundAssignment 
+                  | ExprStmt | NEWLINE
+KeywordStmt     → ImportStmt | IfStmt | WhileStmt | ForStmt 
+                  | FunctionDef | ClassDef | OutputStmt | InputStmt
+                  | TryExcept | Return | Continue | Break
+
+Comments:
+---------
+Comment         → COMMENT
+
+Imports:
+--------
+ImportStmt      → 'summon' Identifier (',' Identifier)*
+
+Variable Assignment:
+-------------------
+Assignment      → Identifier '=' (InputStmt | Expr)
+CompoundAssignment → Identifier CompoundOp Expr
+CompoundOp      → '+=' | '-=' | '*=' | '/=' | '%=' | '**='
+
+Note: '//' is floor division operator, not '//'= compound assignment
+
+Input/Output:
+-------------
+InputStmt       → 'scout' '(' Expr ')'
+OutputStmt      → 'attack' '(' (Expr (',' Expr)*)? ')'
+
+Control Flow - Conditionals:
+----------------------------
+IfStmt          → 'spot' '(' Expr ')' ':' Block
+                  ('counter' '(' Expr ')' ':' Block)*
+                  ('dodge' ':' Block)?
+
+Control Flow - Loops:
+---------------------
+WhileStmt       → 'replay' '(' Expr ')' ':' Block
+ForStmt         → 'farm' Identifier 'in' Expr ':' Block
+Continue        → 'skipEncounter'
+Break           → 'escapeDungeon'
+
+Functions:
+----------
+FunctionDef     → 'quest' Identifier '(' ParamList? ')' ':' Block
+ParamList       → Identifier (',' Identifier)*
+Return          → 'reward' Expr
+
+Exception Handling:
+------------------
+TryExcept       → 'embark' ':' Block
+                  ('gameOver' Identifier? ':' Block)*
+                  ('savePoint' ':' Block)?
+
+Blocks:
+-------
+Block           → NEWLINE INDENT Statement+ DEDENT
+
+Expressions:
+------------
+Expr            → BinaryExpr
+BinaryExpr      → UnaryExpr (BinOp UnaryExpr)*
+UnaryExpr       → UnaryOp UnaryExpr | PrimaryExpr
+PrimaryExpr     → Number | String | Literal | Identifier | Call | Attribute | '(' Expr ')'
+
+Binary Operators (by precedence, low to high):
+  1. or
+  2. and
+  3. not  (unary)
+  4. ==, !=, <, >, <=, >=
+  5. +, -
+  6. *, /, //, %
+  7. **
+
+Unary Operators:
+  not, +, -
+
+Function Calls:
+---------------
+Call            → PrimaryExpr '(' ArgList? ')'
+ArgList         → Expr (',' Expr)*
+
+Attributes:
+-----------
+Attribute       → PrimaryExpr ('.' Identifier)+
+
+Literals:
+---------
+Number          → INTEGER | FLOAT
+String          → STRING_LITERAL
+Literal         → 'true' | 'false'
+Identifier      → IDENTIFIER
