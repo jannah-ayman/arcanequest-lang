@@ -4,12 +4,108 @@ from scanner import scan_source, tokens_to_pretty_lines
 from parser import parse
 
 
+class LineNumberedText(tk.Frame):
+    """Text widget with line numbers on the left side."""
+    
+    def __init__(self, parent, **kwargs):
+        tk.Frame.__init__(self, parent, bg="#1a1a1a")
+        
+        # Extract text widget specific kwargs
+        text_kwargs = {}
+        for key in ['height', 'wrap', 'font', 'bg', 'fg', 'insertbackground', 
+                    'selectbackground', 'relief', 'borderwidth']:
+            if key in kwargs:
+                text_kwargs[key] = kwargs.pop(key)
+        
+        # Create line number canvas (thinner width)
+        self.line_numbers = tk.Canvas(
+            self, 
+            width=40,  # Reduced from 50
+            bg="#181818", 
+            highlightthickness=0,
+            bd=0
+        )
+        self.line_numbers.pack(side=tk.LEFT, fill=tk.Y)
+        
+        # Create text widget with scrollbar
+        self.text = tk.Text(self, **text_kwargs)
+        self.scrollbar = tk.Scrollbar(self, command=self.text.yview)
+        
+        self.text.configure(yscrollcommand=self._on_scroll)
+        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Bind events to update line numbers
+        self.text.bind('<KeyRelease>', self._on_change)
+        self.text.bind('<MouseWheel>', self._on_change)
+        self.text.bind('<Button-1>', self._on_change)
+        self.text.bind('<ButtonRelease-1>', self._on_change)
+        
+        # Schedule periodic updates
+        self._schedule_update()
+    
+    def _schedule_update(self):
+        """Schedule periodic line number updates."""
+        self._update_line_numbers()
+        self.after(100, self._schedule_update)
+    
+    def _on_scroll(self, *args):
+        """Handle scrollbar updates."""
+        self.scrollbar.set(*args)
+        self._update_line_numbers()
+    
+    def _on_change(self, event=None):
+        """Handle any change event."""
+        self._update_line_numbers()
+    
+    def _update_line_numbers(self, event=None):
+        """Update the line numbers displayed."""
+        self.line_numbers.delete('all')
+        
+        # Get the line number at the top of the visible area
+        first_visible = self.text.index('@0,0')
+        last_visible = self.text.index(f'@0,{self.text.winfo_height()}')
+        
+        first_line = int(first_visible.split('.')[0])
+        last_line = int(last_visible.split('.')[0])
+        
+        # Get font info
+        font_family = 'Consolas'
+        font_size = 9
+        
+        # Draw line numbers
+        for line_num in range(first_line, last_line + 2):
+            dline_info = self.text.dlineinfo(f'{line_num}.0')
+            if dline_info:
+                y = dline_info[1] + dline_info[3] // 2  # Center vertically
+                self.line_numbers.create_text(
+                    35,  # Adjusted for thinner canvas
+                    y, 
+                    anchor='e',
+                    text=str(line_num),
+                    fill='#4a4a4a',  # Slightly lighter gray
+                    font=(font_family, font_size)
+                )
+    
+    def get(self, *args, **kwargs):
+        """Proxy get method to text widget."""
+        return self.text.get(*args, **kwargs)
+    
+    def delete(self, *args, **kwargs):
+        """Proxy delete method to text widget."""
+        self.text.delete(*args, **kwargs)
+    
+    def insert(self, *args, **kwargs):
+        """Proxy insert method to text widget."""
+        self.text.insert(*args, **kwargs)
+
+
 class ArcaneQuestIDE:
     
     def __init__(self, root):
         self.root = root
-        self.root.title("ArcaneQuest IDE – Scanner + Parser + Semantic Analyzer")
-        self.root.configure(bg="#1a1a1a")  # Dark theme background
+        self.root.title("ArcaneQuest IDE")
+        self.root.configure(bg="#0d1117")  # Modern dark background
         self._apply_style()
         self._build_ui()
 
@@ -17,89 +113,153 @@ class ArcaneQuestIDE:
         style = ttk.Style()
         style.theme_use("clam")
 
-        # Button styling
+        # Modern button styling
         style.configure("TButton",
                         font=("Segoe UI", 9, "bold"),
                         foreground="white",
-                        padding=6)
-        style.map("TButton",
-                  relief=[("pressed", "groove")])
+                        padding=8,
+                        borderwidth=0)
 
         # Label styling
         style.configure("TLabel",
-                        background="#1a1a1a",
-                        foreground="#e0e0e0",
-                        font=("Segoe UI", 9, "bold"))
+                        background="#0d1117",
+                        foreground="#c9d1d9",
+                        font=("Segoe UI", 10, "bold"))
 
     def _build_ui(self):
-        main_frame = tk.Frame(self.root, bg="#1a1a1a")
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        # Main container with modern padding
+        main_frame = tk.Frame(self.root, bg="#0d1117")
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
 
-        left_frame = tk.Frame(main_frame, bg="#1a1a1a")
-        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
+        # Left panel (editor)
+        left_frame = tk.Frame(main_frame, bg="#0d1117")
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 12))
 
-        # Section title
-        tk.Label(left_frame, text="📂 Source (.aq):", bg="#1a1a1a",
-                 fg="#4FC3F7", font=("Consolas", 10, "bold")).pack(anchor="w")
+        # Modern header with icon
+        header_frame = tk.Frame(left_frame, bg="#0d1117")
+        header_frame.pack(fill=tk.X, pady=(0, 8))
+        
+        tk.Label(
+            header_frame, 
+            text="📝 Editor", 
+            bg="#0d1117",
+            fg="#58a6ff",
+            font=("Segoe UI", 11, "bold")
+        ).pack(side=tk.LEFT)
 
-        # Source code text editor
-        self.input_text = scrolledtext.ScrolledText(
-            left_frame, height=25, wrap=tk.NONE, font=("Consolas", 10),
-            bg="#202020", fg="#f5f5f5", insertbackground="white",
-            selectbackground="#404040", relief="flat", borderwidth=6
+        # Source code editor with modern styling
+        editor_container = tk.Frame(left_frame, bg="#161b22", relief=tk.FLAT)
+        editor_container.pack(fill=tk.BOTH, expand=True, pady=(0, 12))
+        
+        self.input_text = LineNumberedText(
+            editor_container,
+            height=25,
+            wrap=tk.NONE,
+            font=("Consolas", 10),
+            bg="#0d1117",
+            fg="#e6edf3",
+            insertbackground="#58a6ff",
+            selectbackground="#1f6feb",
+            relief="flat",
+            borderwidth=8
         )
-        self.input_text.pack(fill=tk.BOTH, expand=True, pady=(4, 8))
+        self.input_text.pack(fill=tk.BOTH, expand=True)
 
-        # Action buttons
-        btn_frame = tk.Frame(left_frame, bg="#1a1a1a")
+        # Modern button bar
+        btn_frame = tk.Frame(left_frame, bg="#0d1117")
         btn_frame.pack(fill=tk.X)
 
-        # Button configuration: (text, command, color)
+        # Modern button colors
         buttons = [
-            ("Load", self.load_file, "#4FC3F7"),   # Blue - file operation
-            ("Scan", self.on_scan, "#81C784"),     # Green - tokenization
-            ("Parse", self.on_parse, "#BA68C8"),   # Purple - parsing
-            ("Clear", self.on_clear, "#E57373"),   # Red - reset
+            ("📂 Load", self.load_file, "#238636", "#2ea043"),
+            ("🔍 Scan", self.on_scan, "#1f6feb", "#388bfd"),
+            ("🌳 Parse", self.on_parse, "#8957e5", "#a371f7"),
+            ("🗑️  Clear", self.on_clear, "#da3633", "#f85149"),
         ]
 
-        for text, cmd, color in buttons:
+        for text, cmd, bg, hover_bg in buttons:
             btn = tk.Button(
                 btn_frame,
                 text=text,
                 command=cmd,
                 font=("Segoe UI", 9, "bold"),
-                bg=color,
-                fg="black",
-                activebackground="#ffffff",
-                activeforeground="black",
+                bg=bg,
+                fg="white",
+                activebackground=hover_bg,
+                activeforeground="white",
                 relief="flat",
-                padx=10,
-                pady=4
+                cursor="hand2",
+                padx=16,
+                pady=8,
+                borderwidth=0
             )
-            btn.pack(side=tk.LEFT, padx=4, pady=4, fill=tk.X, expand=True)
+            btn.pack(side=tk.LEFT, padx=4, fill=tk.X, expand=True)
+            
+            # Hover effects
+            btn.bind("<Enter>", lambda e, b=btn, c=hover_bg: b.config(bg=c))
+            btn.bind("<Leave>", lambda e, b=btn, c=bg: b.config(bg=c))
 
-        right_frame = tk.Frame(main_frame, bg="#1a1a1a")
+        # Right panel (output)
+        right_frame = tk.Frame(main_frame, bg="#0d1117")
         right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
         # Scanner output section
-        tk.Label(right_frame, text="🔍 Scanner Output:", fg="#81C784",
-                 bg="#1a1a1a", font=("Consolas", 10, "bold")).pack(anchor="w")
+        scan_header = tk.Frame(right_frame, bg="#0d1117")
+        scan_header.pack(fill=tk.X, pady=(0, 8))
+        tk.Label(
+            scan_header, 
+            text="🔍 Tokens", 
+            fg="#58a6ff",
+            bg="#0d1117", 
+            font=("Segoe UI", 11, "bold")
+        ).pack(side=tk.LEFT)
+        
+        scan_container = tk.Frame(right_frame, bg="#161b22")
+        scan_container.pack(fill=tk.BOTH, expand=True, pady=(0, 12))
+        
         self.scan_output = scrolledtext.ScrolledText(
-            right_frame, height=10, wrap=tk.NONE, font=("Consolas", 10),
-            bg="#202020", fg="#dcdcdc", insertbackground="white",
-            selectbackground="#404040", relief="flat", borderwidth=6
+            scan_container, 
+            height=10, 
+            wrap=tk.NONE, 
+            font=("Consolas", 9),
+            bg="#0d1117", 
+            fg="#c9d1d9", 
+            insertbackground="#58a6ff",
+            selectbackground="#1f6feb", 
+            relief="flat", 
+            borderwidth=8,
+            state=tk.DISABLED
         )
-        self.scan_output.pack(fill=tk.BOTH, expand=True, pady=(4, 8))
+        self.scan_output.pack(fill=tk.BOTH, expand=True)
 
         # Parser output section
-        tk.Label(right_frame, text="🌳 Parser / Parse Tree:", fg="#BA68C8",
-                 bg="#1a1a1a", font=("Consolas", 10, "bold")).pack(anchor="w")
+        parse_header = tk.Frame(right_frame, bg="#0d1117")
+        parse_header.pack(fill=tk.X, pady=(0, 8))
+        tk.Label(
+            parse_header, 
+            text="🌳 Parse Tree", 
+            fg="#58a6ff",
+            bg="#0d1117", 
+            font=("Segoe UI", 11, "bold")
+        ).pack(side=tk.LEFT)
+        
+        parse_container = tk.Frame(right_frame, bg="#161b22")
+        parse_container.pack(fill=tk.BOTH, expand=True)
+        
         self.parse_output = scrolledtext.ScrolledText(
-            right_frame, height=12, wrap=tk.NONE, font=("Consolas", 10),
-            bg="#202020", fg="#dcdcdc", insertbackground="white",
-            selectbackground="#404040", relief="flat", borderwidth=6
+            parse_container, 
+            height=12, 
+            wrap=tk.NONE, 
+            font=("Consolas", 9),
+            bg="#0d1117", 
+            fg="#c9d1d9", 
+            insertbackground="#58a6ff",
+            selectbackground="#1f6feb", 
+            relief="flat", 
+            borderwidth=8,
+            state=tk.DISABLED
         )
-        self.parse_output.pack(fill=tk.BOTH, expand=True, pady=(4, 8))
+        self.parse_output.pack(fill=tk.BOTH, expand=True)
 
     def load_file(self):
         path = filedialog.askopenfilename(
@@ -125,7 +285,7 @@ class ArcaneQuestIDE:
             pretty = tokens_to_pretty_lines(tokens)
             self._display_output(self.scan_output, pretty)
         except Exception as e:
-            error_msg = f"Scanner Error:\n{str(e)}"
+            error_msg = f"❌ Scanner Error:\n{str(e)}"
             self._display_output(self.scan_output, error_msg)
 
     def on_parse(self):
@@ -137,7 +297,7 @@ class ArcaneQuestIDE:
             pretty = tokens_to_pretty_lines(tokens)
             self._display_output(self.scan_output, pretty)
             
-            # Run parser (with semantic analysis)
+            # Run parser
             root_node, errors = parse(tokens)
             tree_str = root_node.pretty()
             
@@ -149,7 +309,6 @@ class ArcaneQuestIDE:
                 for error in errors:
                     if isinstance(error, tuple) and len(error) == 2:
                         lineno, msg = error
-                        # Heuristic: check if it's a semantic error
                         if "Semantic" in msg or "Type mismatch" in msg or \
                            "Undeclared" in msg or "must be boolean" in msg or \
                            "Cannot determine type" in msg:
@@ -157,48 +316,43 @@ class ArcaneQuestIDE:
                         else:
                             parse_errors.append((lineno, msg))
                     else:
-                        # Old format (lineno, msg) from parser state
                         parse_errors.append(error)
                 
                 # Build error message
-                error_header = f"⚠️ Found {len(errors)} error(s):\n"
+                error_header = f"⚠️  Found {len(errors)} error(s)\n"
                 
                 if parse_errors:
-                    error_header += f"  • {len(parse_errors)} Parse error(s)\n"
+                    error_header += f"   • {len(parse_errors)} Parse error(s)\n"
                 if semantic_errors:
-                    error_header += f"  • {len(semantic_errors)} Semantic error(s)\n"
+                    error_header += f"   • {len(semantic_errors)} Semantic error(s)\n"
                 
                 error_lines = []
                 
                 if parse_errors:
-                    error_lines.append("PARSE ERRORS:")
+                    error_lines.append("\n━━━ PARSE ERRORS ━━━")
                     for lineno, msg in parse_errors:
-                        error_lines.append(f"  Line {lineno}: {msg}")
+                        error_lines.append(f"Line {lineno}: {msg}")
                 
                 if semantic_errors:
-                    if parse_errors:
-                        error_lines.append("")  # Blank line separator
-                    error_lines.append("SEMANTIC ERRORS:")
+                    error_lines.append("\n━━━ SEMANTIC ERRORS ━━━")
                     for lineno, msg in semantic_errors:
-                        error_lines.append(f"  Line {lineno}: {msg}")
+                        error_lines.append(f"Line {lineno}: {msg}")
                 
-                separator = "=" * 60
-                result = (f"{error_header}\n"
+                separator = "─" * 60
+                result = (f"{error_header}"
                          f"{chr(10).join(error_lines)}\n\n"
                          f"{separator}\n"
-                         f"Parse tree:\n"
+                         f"Parse Tree:\n"
                          f"{separator}\n"
                          f"{tree_str}")
             else:
-                # Success - display parse tree with type annotations
-                result = f"✅ Parsing and Semantic Analysis successful!\n\nParse tree with types:\n{tree_str}"
+                result = f"✅ Success!\n\nParse tree with type annotations:\n\n{tree_str}"
             
             self._display_output(self.parse_output, result)
             
         except Exception as e:
-            # Unexpected error
             import traceback
-            error_msg = f"Unexpected Error:\n{str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+            error_msg = f"❌ Unexpected Error:\n{str(e)}\n\n{traceback.format_exc()}"
             self._display_output(self.parse_output, error_msg)
 
     def on_clear(self):
@@ -212,12 +366,14 @@ class ArcaneQuestIDE:
         widget.insert("1.0", text)
         widget.config(state=tk.DISABLED)
 
+
 def main():
     root = tk.Tk()
     app = ArcaneQuestIDE(root)
-    root.geometry("1350x640")  # Default window size
-    root.minsize(1000, 540)    # Minimum window size
+    root.geometry("1400x700")
+    root.minsize(1100, 600)
     root.mainloop()
+
 
 if __name__ == "__main__":
     main()
