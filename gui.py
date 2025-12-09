@@ -8,7 +8,7 @@ class ArcaneQuestIDE:
     
     def __init__(self, root):
         self.root = root
-        self.root.title("ArcaneQuest IDE — Scanner + Parser")
+        self.root.title("ArcaneQuest IDE – Scanner + Parser + Semantic Analyzer")
         self.root.configure(bg="#1a1a1a")  # Dark theme background
         self._apply_style()
         self._build_ui()
@@ -137,30 +137,68 @@ class ArcaneQuestIDE:
             pretty = tokens_to_pretty_lines(tokens)
             self._display_output(self.scan_output, pretty)
             
-            # Run parser
+            # Run parser (with semantic analysis)
             root_node, errors = parse(tokens)
             tree_str = root_node.pretty()
             
             if errors:
-                # Display errors with partial parse tree
-                header = f"‼️Parsing failed: {len(errors)} error(s)\n"
-                err_lines = [f"Line {lineno}: {msg}" for lineno, msg in errors]
+                # Separate parse errors from semantic errors
+                parse_errors = []
+                semantic_errors = []
+                
+                for error in errors:
+                    if isinstance(error, tuple) and len(error) == 2:
+                        lineno, msg = error
+                        # Heuristic: check if it's a semantic error
+                        if "Semantic" in msg or "Type mismatch" in msg or \
+                           "Undeclared" in msg or "must be boolean" in msg or \
+                           "Cannot determine type" in msg:
+                            semantic_errors.append((lineno, msg))
+                        else:
+                            parse_errors.append((lineno, msg))
+                    else:
+                        # Old format (lineno, msg) from parser state
+                        parse_errors.append(error)
+                
+                # Build error message
+                error_header = f"⚠️ Found {len(errors)} error(s):\n"
+                
+                if parse_errors:
+                    error_header += f"  • {len(parse_errors)} Parse error(s)\n"
+                if semantic_errors:
+                    error_header += f"  • {len(semantic_errors)} Semantic error(s)\n"
+                
+                error_lines = []
+                
+                if parse_errors:
+                    error_lines.append("PARSE ERRORS:")
+                    for lineno, msg in parse_errors:
+                        error_lines.append(f"  Line {lineno}: {msg}")
+                
+                if semantic_errors:
+                    if parse_errors:
+                        error_lines.append("")  # Blank line separator
+                    error_lines.append("SEMANTIC ERRORS:")
+                    for lineno, msg in semantic_errors:
+                        error_lines.append(f"  Line {lineno}: {msg}")
+                
                 separator = "=" * 60
-                result = (f"{header}\n"
-                         f"{chr(10).join(err_lines)}\n\n"
+                result = (f"{error_header}\n"
+                         f"{chr(10).join(error_lines)}\n\n"
                          f"{separator}\n"
                          f"Partial parse tree:\n"
                          f"{separator}\n"
                          f"{tree_str}")
             else:
-                # Success - display parse tree
-                result = f"✔️Parsing successful!\n\nParse tree:\n{tree_str}"
+                # Success - display parse tree with type annotations
+                result = f"✅ Parsing and Semantic Analysis successful!\n\nParse tree with types:\n{tree_str}"
             
             self._display_output(self.parse_output, result)
             
         except Exception as e:
             # Unexpected error
-            error_msg = f"Unexpected Error:\n{str(e)}"
+            import traceback
+            error_msg = f"Unexpected Error:\n{str(e)}\n\nTraceback:\n{traceback.format_exc()}"
             self._display_output(self.parse_output, error_msg)
 
     def on_clear(self):

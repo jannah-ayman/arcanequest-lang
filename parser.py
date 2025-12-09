@@ -1,5 +1,10 @@
 from scanner import *
 
+DATA_TYPE_INT = "potion"
+DATA_TYPE_DOUBLE = "elixir"
+DATA_TYPE_STRING = "scroll"
+DATA_TYPE_BOOL = "fate"
+
 class Node:
     """
     Attributes:
@@ -7,12 +12,14 @@ class Node:
         value: Optional value (e.g., operator symbol, identifier name)
         children: List of child nodes
         lineno: Source line number for error reporting
+        dtype: Data type (added for semantic analysis)
     """
     def __init__(self, ntype, value=None, children=None, lineno=None):
         self.type = ntype
         self.value = value
         self.children = children if children is not None else []
         self.lineno = lineno
+        self.dtype = None  # For type inference
 
     def add(self, node):
         """Add a child node."""
@@ -23,15 +30,460 @@ class Node:
         pad = "  " * indent
         val = f": {self.value}" if self.value is not None else ""
         lineinfo = f" (line {self.lineno})" if self.lineno else ""
-        out = f"{pad}{self.type}{val}{lineinfo}\n"
+        dtype_info = f" [{self.dtype}]" if self.dtype else ""
+        out = f"{pad}{self.type}{val}{lineinfo}{dtype_info}\n"
         for c in self.children:
             out += c.pretty(indent + 1)
         return out
 
+class IdentifierInfo:
+    def __init__(self, name, dtype, line):
+        self.name = name
+        self.dtype = dtype
+        self.line = line
+    
+    def __repr__(self):
+        return f"IdentifierInfo({self.name}, {self.dtype}, line {self.line})"
+
+
+class SymbolTable:
+    def __init__(self):
+        self.scopes = [{}]  # Start with global scope
+    
+    def push_scope(self):
+        """Create a new scope (enter block)."""
+        self.scopes.append({})
+    
+    def pop_scope(self):
+        """Exit current scope."""
+        if len(self.scopes) > 1:
+            self.scopes.pop()
+    
+    def declare(self, name, dtype, line):
+        current_scope = self.scopes[-1]
+        current_scope[name] = IdentifierInfo(name, dtype, line)
+        return current_scope[name]
+    
+    def lookup(self, name):
+        for scope in reversed(self.scopes):
+            if name in scope:
+                return scope[name]
+        return None
+
+def datatype_check(t1, t2, operator):
+    # Allow operations with unknown types (function parameters)
+    if t1 == "unknown" or t2 == "unknown":
+        if operator in ["+", "-", "*", "/", "//", "%", "**"]:
+            return DATA_TYPE_DOUBLE
+        elif operator in ["<", ">", "<=", ">=", "==", "!="]:
+            return DATA_TYPE_BOOL
+        elif operator in ["and", "or"]:
+            return DATA_TYPE_BOOL
+        return "unknown"
+
+    # String concatenation
+    if operator == "+" and t1 == DATA_TYPE_STRING and t2 == DATA_TYPE_STRING:
+        return DATA_TYPE_STRING
+    
+    # String repetition: "hello" * 3 or 3 * "hello"
+    if operator == "*":
+        if (t1 == DATA_TYPE_STRING and t2 == DATA_TYPE_INT) or \
+           (t1 == DATA_TYPE_INT and t2 == DATA_TYPE_STRING):
+            return DATA_TYPE_STRING
+    
+    # Arithmetic operators: +, -, *, /, //, %, **
+    if operator in ["+", "-", "*", "/", "//", "%", "**"]:
+        if t1 in (DATA_TYPE_INT, DATA_TYPE_DOUBLE) and t2 in (DATA_TYPE_INT, DATA_TYPE_DOUBLE):
+            # If either is double, result is double
+            if t1 == DATA_TYPE_DOUBLE or t2 == DATA_TYPE_DOUBLE:
+                return DATA_TYPE_DOUBLE
+            return DATA_TYPE_INT
+        return None  # Invalid
+    
+    # Comparison operators: <, >, <=, >=
+    if operator in ["<", ">", "<=", ">="]:
+        if t1 in (DATA_TYPE_INT, DATA_TYPE_DOUBLE) and t2 in (DATA_TYPE_INT, DATA_TYPE_DOUBLE):
+            return DATA_TYPE_BOOL
+        return None  # Invalid
+    
+    # Equality operators: ==, !=
+    if operator in ["==", "!="]:
+        if t1 == t2:
+            return DATA_TYPE_BOOL
+        return None  # Invalid
+    
+    # Logical operators: and, or
+    if operator in ["and", "or"]:
+        if t1 == DATA_TYPE_BOOL and t2 == DATA_TYPE_BOOL:
+            return DATA_TYPE_BOOL
+        return None  # Invalid
+    
+    # Assignment operator
+    if operator == "=":
+        return t2  # Type of right side
+    
+    return None  # Unknown operator or invalid combination
+
+def semantic_analysis(ast_root):
+    symbol_table = SymbolTable()
+    errors = []
+    function_return_types = {}  # Store function return types
+
+    
+    def analyze_node(node):
+        """Recursively analyze AST nodes and infer types."""
+        if node is None:
+            return None
+        
+        node_type = node.type
+        
+        # Program node
+        if node_type == "Program":
+            for child in node.children:
+                analyze_node(child)
+            return None
+        
+        # Comment
+        if node_type == "Comment":
+            return None
+        
+        # Import
+        if node_type == "Import":
+            # Register imported module names in symbol table
+            for child in node.children:
+                if child.type == "Module":
+                    module_name = child.value
+                    symbol_table.declare(module_name, "module", node.lineno)
+            return None
+
+        # Assignment: x = expr
+        if node_type == "Assignment":
+            var_name = node.value
+            if not var_name or not node.children:
+                return None
+            
+            # Analyze right-hand side
+            rhs_type = analyze_node(node.children[0])
+            
+            if rhs_type is None:
+                errors.append((node.lineno, f"Cannot determine type for assignment to '{var_name}'"))
+                return None
+            
+            # Declare/update variable
+            symbol_table.declare(var_name, rhs_type, node.lineno)
+            node.dtype = rhs_type
+            return rhs_type
+        
+        # Input: scout("prompt")
+        if node_type == "Input":
+            node.dtype = DATA_TYPE_STRING
+            return DATA_TYPE_STRING
+        
+        # Output: attack(...)
+        if node_type == "Output":
+            for child in node.children:
+                analyze_node(child)
+            return None
+        
+        # If statement
+        if node_type == "If":
+            for child in node.children:
+                if child.type == "Condition":
+                    # Check condition is boolean
+                    if child.children:
+                        cond_type = analyze_node(child.children[0])
+                        if cond_type and cond_type != DATA_TYPE_BOOL:
+                            errors.append((node.lineno, f"Condition must be boolean, got {cond_type}"))
+                
+                elif child.type == "Then":
+                    symbol_table.push_scope()
+                    for stmt in child.children:
+                        analyze_node(stmt)
+                    symbol_table.pop_scope()
+                
+                elif child.type == "Elif":
+                    # Check elif condition
+                    for subchild in child.children:
+                        if subchild.type == "Condition" and subchild.children:
+                            cond_type = analyze_node(subchild.children[0])
+                            if cond_type and cond_type != DATA_TYPE_BOOL:
+                                errors.append((node.lineno, f"Elif condition must be boolean, got {cond_type}"))
+                        elif subchild.type == "Body":
+                            symbol_table.push_scope()
+                            for stmt in subchild.children:
+                                analyze_node(stmt)
+                            symbol_table.pop_scope()
+                
+                elif child.type == "Else":
+                    symbol_table.push_scope()
+                    for stmt in child.children:
+                        analyze_node(stmt)
+                    symbol_table.pop_scope()
+            
+            return None
+        
+        # While loop
+        if node_type == "While":
+            for child in node.children:
+                if child.type == "Condition":
+                    if child.children:
+                        cond_type = analyze_node(child.children[0])
+                        if cond_type and cond_type != DATA_TYPE_BOOL:
+                            errors.append((node.lineno, f"While condition must be boolean, got {cond_type}"))
+                
+                elif child.type == "Body":
+                    symbol_table.push_scope()
+                    for stmt in child.children:
+                        analyze_node(stmt)
+                    symbol_table.pop_scope()
+            
+            return None
+        
+        # For loop
+        if node_type == "For":
+            var_name = None
+            iter_type = None
+            body_stmts = []
+            
+            for child in node.children:
+                if child.type == "Var":
+                    var_name = child.value
+                elif child.type == "Iter":
+                    if child.children:
+                        iter_type = analyze_node(child.children[0])
+                elif child.type == "Body":
+                    body_stmts = child.children
+            
+            # Create new scope for loop
+            symbol_table.push_scope()
+            
+            # Declare loop variable (type inferred from iterable, default to string)
+            if var_name:
+                symbol_table.declare(var_name, DATA_TYPE_STRING, node.lineno)
+            
+            # Analyze body
+            for stmt in body_stmts:
+                analyze_node(stmt)
+            
+            symbol_table.pop_scope()
+            return None
+        
+        # Function definition
+        # Function definition
+        if node_type == "FunctionDef":
+            func_name = node.value
+            params = []
+            body_stmts = []
+            return_type = None
+            
+            for child in node.children:
+                if child.type == "Params":
+                    for param in child.children:
+                        if param.type == "Param":
+                            params.append(param.value)
+                elif child.type == "Body":
+                    body_stmts = child.children
+            
+            # Declare the function name in the current scope
+            if func_name:
+                symbol_table.declare(func_name, "function", node.lineno)
+            
+            # Create new scope for function body
+            symbol_table.push_scope()
+            
+            # Register parameters with unknown type
+            for param_name in params:
+                symbol_table.declare(param_name, "unknown", node.lineno)
+            
+            # Analyze body and track return type
+            for stmt in body_stmts:
+                analyze_node(stmt)
+                if stmt.type == "Return" and stmt.dtype:
+                    return_type = stmt.dtype
+            
+            symbol_table.pop_scope()
+            
+            # Store the function's return type
+            if func_name and return_type:
+                function_return_types[func_name] = return_type
+            
+            return None
+        
+        # Return statement
+        if node_type == "Return":
+            if node.children:
+                return_type = analyze_node(node.children[0])
+                node.dtype = return_type
+                return return_type
+            return None
+        
+        # Try-except
+        if node_type == "Try":
+            for child in node.children:
+                if child.type == "TryBlock":
+                    symbol_table.push_scope()
+                    for stmt in child.children:
+                        analyze_node(stmt)
+                    symbol_table.pop_scope()
+                
+                elif child.type == "Except":
+                    symbol_table.push_scope()
+                    for stmt in child.children:
+                        analyze_node(stmt)
+                    symbol_table.pop_scope()
+                
+                elif child.type == "Finally":
+                    symbol_table.push_scope()
+                    for stmt in child.children:
+                        analyze_node(stmt)
+                    symbol_table.pop_scope()
+            
+            return None
+        
+        # Continue/Break
+        if node_type in ("Continue", "Break"):
+            return None
+        
+        # Expression statement
+        if node_type == "ExprStmt":
+            if node.children:
+                return analyze_node(node.children[0])
+            return None
+        
+        # Binary operation
+        if node_type == "BinaryOp":
+            if len(node.children) < 2:
+                return None
+            
+            left_type = analyze_node(node.children[0])
+            right_type = analyze_node(node.children[1])
+            operator = node.value
+            
+            if left_type is None or right_type is None:
+                return None
+            
+            result_type = datatype_check(left_type, right_type, operator)
+            
+            if result_type is None:
+                errors.append((node.lineno, f"Type mismatch: cannot apply '{operator}' to {left_type} and {right_type}"))
+                return None
+            
+            node.dtype = result_type
+            return result_type
+        
+        # Unary operation
+        if node_type == "UnaryOp":
+            if not node.children:
+                return None
+            
+            operand_type = analyze_node(node.children[0])
+            operator = node.value
+            
+            if operator == "not":
+                if operand_type != DATA_TYPE_BOOL:
+                    errors.append((node.lineno, f"'not' operator requires boolean, got {operand_type}"))
+                    return None
+                node.dtype = DATA_TYPE_BOOL
+                return DATA_TYPE_BOOL
+            
+            elif operator in ("+", "-"):
+                if operand_type not in (DATA_TYPE_INT, DATA_TYPE_DOUBLE):
+                    errors.append((node.lineno, f"Unary '{operator}' requires numeric type, got {operand_type}"))
+                    return None
+                node.dtype = operand_type
+                return operand_type
+            
+            return None
+        
+        # Identifier (variable reference)
+        if node_type == "Identifier":
+            var_name = node.value
+            
+            # Check for type casting functions
+            if var_name in (DATA_TYPE_INT, DATA_TYPE_DOUBLE, DATA_TYPE_STRING, DATA_TYPE_BOOL):
+                # This is a datatype name used as casting function
+                node.dtype = var_name
+                return var_name
+            
+            # Look up variable
+            info = symbol_table.lookup(var_name)
+            if info is None:
+                errors.append((node.lineno, f"Undeclared variable '{var_name}'"))
+                return None
+            
+            node.dtype = info.dtype
+            return info.dtype
+        
+        # Literals
+        if node_type == "Number":
+            # Check if it's a float or int
+            if '.' in str(node.value):
+                node.dtype = DATA_TYPE_DOUBLE
+                return DATA_TYPE_DOUBLE
+            else:
+                node.dtype = DATA_TYPE_INT
+                return DATA_TYPE_INT
+        
+        if node_type == "String":
+            node.dtype = DATA_TYPE_STRING
+            return DATA_TYPE_STRING
+        
+        if node_type == "Literal":
+            # true/false
+            node.dtype = DATA_TYPE_BOOL
+            return DATA_TYPE_BOOL
+        
+        # Function call
+        if node_type == "Call":
+            if not node.children:
+                return None
+            
+            # First child is the function/method being called
+            func_node = node.children[0]
+            func_type = analyze_node(func_node)
+            
+            # Check if it's a type casting function
+            if func_node.type == "Identifier" and func_node.value in (DATA_TYPE_INT, DATA_TYPE_DOUBLE, DATA_TYPE_STRING, DATA_TYPE_BOOL):
+                # Type cast: potion("5"), scroll(42), etc.
+                cast_type = func_node.value
+                
+                # Analyze arguments
+                for arg in node.children[1:]:
+                    analyze_node(arg)
+                
+                node.dtype = cast_type
+                return cast_type
+            
+            # Regular function call - analyze arguments
+            for arg in node.children[1:]:
+                analyze_node(arg)
+            
+            # For user-defined functions, return their tracked return type
+            if func_node.type == "Identifier" and func_type == "function":
+                func_name = func_node.value
+                if func_name in function_return_types:
+                    node.dtype = function_return_types[func_name]
+                    return function_return_types[func_name]
+                else:
+                    node.dtype = "unknown"
+                    return "unknown"
+            
+            return None
+        
+        # Attribute access
+        if node_type == "Attribute":
+            if node.children:
+                analyze_node(node.children[0])
+            # We don't track object attributes, return None
+            return None
+        
+        return None
+    
+    # Start analysis
+    analyze_node(ast_root)
+    return errors
+
 class ParserState:
-    """
-    Manages parser state including token stream position and errors.
-    """
     def __init__(self, tokens):
         self.tokens = tokens
         self.i = 0  # Current token index
@@ -128,17 +580,6 @@ class ParserState:
         self.panic_mode = False
 
 def parse(tokens):
-    """
-    Parse a token stream into an ST.
-    
-    Grammar rule: Program → Statement* EOF
-    
-    Args:
-        tokens: List of token dictionaries from scanner
-    
-    Returns:
-        Tuple of (root_node, error_list)
-    """
     state = ParserState(tokens)
     root = Node("Program", lineno=1)
     
@@ -149,8 +590,13 @@ def parse(tokens):
     except Exception as e:
         state.error(f"Internal parser error: {e}", state.current().get("lineno", -1))
     
-    return root, state.errors
-
+    # Perform semantic analysis
+    semantic_errors = semantic_analysis(root)
+    
+    # Combine parse errors and semantic errors
+    all_errors = state.errors + semantic_errors
+    
+    return root, all_errors
 
 def parse_statement_list(state, stop_on=(TOKEN_EOF, TOKEN_DEDENT)):
     """
@@ -214,15 +660,6 @@ KEYWORD_PARSERS = {
 }
 
 def parse_statement(state):
-    """
-    Parse a single statement.
-    
-    Grammar rule:
-    Statement → Comment | KeywordStmt | Assignment | CompoundAssignment 
-                | ExprStmt | NEWLINE
-    
-    Dispatches to appropriate parser based on first token.
-    """
     cur = state.current()
     
     # Comment
@@ -291,13 +728,6 @@ def parse_statement(state):
     return None
 
 def parse_import(state):
-    """
-    Parse import statement.
-    
-    Grammar rule: ImportStmt → 'summon' Identifier (',' Identifier)*
-    
-    Example: summon math, random, sys
-    """
     tok = state.expect([(TOKEN_KEYWORD, "summon")], "Expected 'summon' for import")
     if tok is None:
         return Node("Import", None, [], state.current().get("lineno"))
@@ -328,15 +758,6 @@ def parse_import(state):
     return node
 
 def parse_assignment(state):
-    """
-    Parse simple assignment.
-    
-    Grammar rule: Assignment → Identifier '=' (InputStmt | Expr)
-    
-    Examples:
-        x = 5
-        name = scout("Enter name: ")
-    """
     ident = state.expect([(TOKEN_IDENTIFIER, None)], "Expected identifier in assignment")
     if ident is None:
         return Node("Assignment", None, [], state.current().get("lineno"))
@@ -354,14 +775,6 @@ def parse_assignment(state):
 
 
 def parse_compound_assignment(state):
-    """
-    Parse compound assignment (sugar for x = x op y).
-    
-    Grammar rule: CompoundAssignment → Identifier CompoundOp Expr
-    CompoundOp → '+=' | '-=' | '*=' | '/=' | '%=' | '**='
-    
-    Example: x += 5  →  x = x + 5
-    """
     ident = state.expect([(TOKEN_IDENTIFIER, None)], "Expected identifier in compound assignment")
     if ident is None:
         return Node("Assignment", None, [], state.current().get("lineno"))
@@ -382,13 +795,6 @@ def parse_compound_assignment(state):
     return Node("Assignment", ident["value"], [binop], ident["lineno"])
 
 def parse_input_stmt(state):
-    """
-    Parse input statement.
-    
-    Grammar rule: InputStmt → 'scout' '(' Expr ')'
-    
-    Example: scout("Enter your name: ")
-    """
     start = state.expect([(TOKEN_KEYWORD, "scout")], "Expected 'scout' for input")
     if start is None:
         return Node("Input", None, [], state.current().get("lineno"))
@@ -402,13 +808,6 @@ def parse_input_stmt(state):
 
 
 def parse_output_stmt(state):
-    """
-    Parse output/print statement.
-    
-    Grammar rule: OutputStmt → 'attack' '(' (Expr (',' Expr)*)? ')'
-    
-    Example: attack("Hello", name, "!")
-    """
     start = state.expect([(TOKEN_KEYWORD, "attack")], "Expected 'attack' for output")
     if start is None:
         return Node("Output", None, [], state.current().get("lineno"))
@@ -428,36 +827,12 @@ def parse_output_stmt(state):
     return node
 
 def parse_condition(state):
-    """
-    Parse a condition expression (used by if, while, etc.)
-    
-    Grammar rule: '(' Expr ')'
-    
-    Returns:
-        Expression node representing the condition
-    """
     state.expect([(TOKEN_PUNCT, "(")], "Expected '(' before condition")
     cond = parse_expr(state)
     state.expect([(TOKEN_PUNCT, ")")], "Expected ')' after condition")
     return cond
 
 def parse_if(state):
-    """
-    Parse if-elif-else statement.
-    
-    Grammar rule:
-    IfStmt → 'spot' '(' Expr ')' ':' Block
-             ('counter' '(' Expr ')' ':' Block)*
-             ('dodge' ':' Block)?
-    
-    Example:
-        spot (x > 0):
-            attack("positive")
-        counter (x < 0):
-            attack("negative")
-        dodge:
-            attack("zero")
-    """
     start = state.expect([(TOKEN_KEYWORD, "spot")], "Expected 'spot' for if")
     if start is None:
         return Node("If", None, [], state.current().get("lineno"))
@@ -494,15 +869,6 @@ def parse_if(state):
     return node
 
 def parse_while(state):
-    """
-    Parse while loop.
-    
-    Grammar rule: WhileStmt → 'replay' '(' Expr ')' ':' Block
-    
-    Example:
-        replay (x > 0):
-            x -= 1
-    """
     start = state.expect([(TOKEN_KEYWORD, "replay")], "Expected 'replay' for while")
     if start is None:
         return Node("While", None, [], state.current().get("lineno"))
@@ -521,15 +887,6 @@ def parse_while(state):
 
 
 def parse_for(state):
-    """
-    Parse for loop.
-    
-    Grammar rule: ForStmt → 'farm' Identifier 'in' Expr ':' Block
-    
-    Example:
-        farm item in items:
-            attack(item)
-    """
     start = state.expect([(TOKEN_KEYWORD, "farm")], "Expected 'farm' for for-loop")
     if start is None:
         return Node("For", None, [], state.current().get("lineno"))
@@ -559,16 +916,6 @@ def parse_for(state):
 
 
 def parse_function_def(state):
-    """
-    Parse function definition.
-    
-    Grammar rule: FunctionDef → 'quest' Identifier '(' ParamList? ')' ':' Block
-    ParamList → Identifier (',' Identifier)*
-    
-    Example:
-        quest greet(name, age):
-            attack("Hello", name)
-    """
     start = state.expect([(TOKEN_KEYWORD, "quest")], "Expected 'quest' for function def")
     if start is None:
         return Node("FunctionDef", None, [], state.current().get("lineno"))
@@ -599,35 +946,12 @@ def parse_function_def(state):
 
 
 def parse_return(state):
-    """
-    Parse return statement.
-    
-    Grammar rule: Return → 'reward' Expr
-    
-    Example: reward x + 5
-    """
     start = state.expect([(TOKEN_KEYWORD, "reward")], "Expected 'reward' for return")
     if start is None:
         return Node("Return", None, [], state.current().get("lineno"))
     return Node("Return", None, [parse_expr(state)], start["lineno"])
 
 def parse_try_except(state):
-    """
-    Parse try-except-finally statement.
-    
-    Grammar rule:
-    TryExcept → 'embark' ':' Block
-                ('gameOver' Identifier? ':' Block)*
-                ('savePoint' ':' Block)?
-    
-    Example:
-        embark:
-            risky_operation()
-        gameOver ValueError:
-            attack("Invalid value")
-        savePoint:
-            cleanup()
-    """
     start = state.expect([(TOKEN_KEYWORD, "embark")], "Expected 'embark' for try")
     if start is None:
         return Node("Try", None, [], state.current().get("lineno"))
@@ -653,13 +977,6 @@ def parse_try_except(state):
     return node
 
 def parse_statement_block(state):
-    """
-    Parse an indented block of statements.
-    
-    Grammar rule: Block → NEWLINE INDENT Statement+ DEDENT
-    
-    Used for function bodies, loop bodies, if-blocks, etc.
-    """
     # Expect newline before indent
     if not state.match(TOKEN_NEWLINE):
         state.error("Expected NEWLINE before block", state.current().get("lineno"))
@@ -683,23 +1000,15 @@ def parse_statement_block(state):
     
     return stmts
 
-# ==============================================================================
-# EXPRESSION PARSING - Traditional Factor/Term Approach
-# ==============================================================================
-
 def parse_expr(state):
     """
     Parse expression - top level (logical OR).
-    
-    Grammar rule: Expr → LogicalOrExpr
     """
     return parse_logical_or(state)
 
 def parse_logical_or(state):
     """
     Parse logical OR expression.
-    
-    Grammar rule: LogicalOrExpr → LogicalAndExpr ('or' LogicalAndExpr)*
     """
     left = parse_logical_and(state)
     
@@ -713,8 +1022,6 @@ def parse_logical_or(state):
 def parse_logical_and(state):
     """
     Parse logical AND expression.
-    
-    Grammar rule: LogicalAndExpr → ComparisonExpr ('and' ComparisonExpr)*
     """
     left = parse_comparison(state)
     
@@ -728,9 +1035,6 @@ def parse_logical_and(state):
 def parse_comparison(state):
     """
     Parse comparison expression.
-    
-    Grammar rule: ComparisonExpr → AddExpr (CompOp AddExpr)*
-    CompOp → '==' | '!=' | '<' | '>' | '<=' | '>='
     """
     left = parse_add_expr(state)
     
@@ -743,11 +1047,6 @@ def parse_comparison(state):
     return left
 
 def parse_add_expr(state):
-    """
-    Parse addition/subtraction expression (traditional "expression" level).
-    
-    Grammar rule: AddExpr → Term (('+' | '-') Term)*
-    """
     left = parse_term(state)
     
     while state.match(TOKEN_PUNCT) and state.current()["value"] in ("+", "-"):
@@ -758,11 +1057,6 @@ def parse_add_expr(state):
     return left
 
 def parse_term(state):
-    """
-    Parse multiplication/division/modulo expression (traditional "term" level).
-    
-    Grammar rule: Term → Exponent (('*' | '/' | '//' | '%') Exponent)*
-    """
     left = parse_exponent(state)
     
     while (state.match(TOKEN_PUNCT) and state.current()["value"] in ("*", "/", "%")) or \
@@ -774,13 +1068,6 @@ def parse_term(state):
     return left
 
 def parse_exponent(state):
-    """
-    Parse exponentiation expression.
-    
-    Grammar rule: Exponent → Unary ('**' Unary)*
-    
-    Note: Exponentiation is right-associative
-    """
     left = parse_unary(state)
     
     if state.match(TOKEN_OPERATOR, "**"):
@@ -792,12 +1079,6 @@ def parse_exponent(state):
     return left
 
 def parse_unary(state):
-    """
-    Parse unary expression.
-    
-    Grammar rule: Unary → UnaryOp Unary | Factor
-    UnaryOp → 'not' | '+' | '-'
-    """
     cur = state.current()
     
     # Unary operators
@@ -809,10 +1090,6 @@ def parse_unary(state):
 
 def parse_factor(state):
     """
-    Parse factor (primary expressions with postfix operations).
-    
-    Grammar rule: Factor → Primary (('.' Identifier) | ('(' ArgList? ')'))*
-    
     Handles:
     - Literals: 123, 3.14, "hello", true, false
     - Identifiers: variable names
@@ -864,18 +1141,6 @@ def parse_factor(state):
 
 
 def parse_postfix_ops(state, node):
-    """
-    Parse postfix operations (attribute access and function calls).
-    
-    Grammar: ('.' Identifier | '(' ArgList? ')')*
-    
-    Args:
-        state: Parser state
-        node: Base node to apply operations to
-    
-    Returns:
-        Node with postfix operations applied
-    """
     while True:
         # Attribute access: obj.attr
         if state.match(TOKEN_PUNCT, "."):
@@ -898,24 +1163,6 @@ def parse_postfix_ops(state, node):
 
 
 def parse_call_with_target(state, target_node):
-    """
-    Parse function call with a known target expression.
-    
-    Grammar rule: Call → PrimaryExpr '(' ArgList? ')'
-    ArgList → Expr (',' Expr)*
-    
-    Args:
-        state: Parser state
-        target_node: ST node for the function being called
-    
-    Returns:
-        Call ST node with target and arguments as children
-    
-    Example:
-        func(1, 2, 3)
-        obj.method(x, y)
-        potion(42)
-    """
     lpar = state.expect([(TOKEN_PUNCT, "(")], "Expected '(' for function call")
     args = []
     
