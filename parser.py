@@ -6,14 +6,6 @@ DATA_TYPE_STRING = "scroll"
 DATA_TYPE_BOOL = "fate"
 
 class Node:
-    """
-    Attributes:
-        type: Node type (e.g., "Assignment", "BinaryOp", "If")
-        value: Optional value (e.g., operator symbol, identifier name)
-        children: List of child nodes
-        lineno: Source line number for error reporting
-        dtype: Data type (added for semantic analysis)
-    """
     def __init__(self, ntype, value=None, children=None, lineno=None):
         self.type = ntype
         self.value = value
@@ -124,7 +116,7 @@ def datatype_check(t1, t2, operator):
     
     return None  # Unknown operator or invalid combination
 
-def semantic_analysis(ast_root):
+def semantic_analysis(st_root):
     symbol_table = SymbolTable()
     errors = []
     function_return_types = {}  # Store function return types
@@ -480,7 +472,7 @@ def semantic_analysis(ast_root):
         return None
     
     # Start analysis
-    analyze_node(ast_root)
+    analyze_node(st_root)
     return errors
 
 class ParserState:

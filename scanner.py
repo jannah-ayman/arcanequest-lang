@@ -71,18 +71,6 @@ _RE_WS = re.compile(r"^[ \t]+")  # whitespace (spaces and tabs)
 
 # HELPER FUNCTIONS
 def make_token(token_type, value, line_number, column):
-    """
-    Factory function to create a token dictionary.
-    
-    Args:
-        token_type: Type of token (TOKEN_*)
-        value: The actual text/value of the token
-        line_number: Source line number
-        column: Column position in line
-    
-    Returns:
-        Dictionary with token information
-    """
     return {
         "type": token_type,
         "value": value,
@@ -92,22 +80,6 @@ def make_token(token_type, value, line_number, column):
 
 # MAIN SCANNER FUNCTION
 def scan_source(source_text):
-    """
-    Tokenize ArcaneQuest source code.
-    
-    Handles:
-    - Indentation-based blocks (like Python)
-    - Comments (marked with -->)
-    - Keywords, identifiers, literals
-    - Multi-character and single-character operators
-    - Both single and double quoted strings
-    
-    Args:
-        source_text: String containing source code
-    
-    Returns:
-        List of token dictionaries
-    """
     lines = source_text.splitlines()
     tokens = []
     indent_stack = [0]  # Track indentation levels
@@ -265,15 +237,6 @@ def scan_source(source_text):
 
 # PRETTY PRINTER
 def tokens_to_pretty_lines(tokens):
-    """
-    Format tokens into human-readable output.
-    
-    Args:
-        tokens: List of token dictionaries
-    
-    Returns:
-        Formatted string showing token values, descriptions, and line numbers
-    """
     lines = []
     
     # Map punctuation to readable names
