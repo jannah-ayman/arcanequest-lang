@@ -1139,7 +1139,6 @@ def parse_factor(state):
     state.advance()
     return Node("Empty", None, [], cur.get("lineno", -1))
 
-
 def parse_postfix_ops(state, node):
     while True:
         # Attribute access: obj.attr
@@ -1160,7 +1159,6 @@ def parse_postfix_ops(state, node):
             break
     
     return node
-
 
 def parse_call_with_target(state, target_node):
     lpar = state.expect([(TOKEN_PUNCT, "(")], "Expected '(' for function call")
