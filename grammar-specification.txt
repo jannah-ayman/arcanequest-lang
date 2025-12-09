@@ -1,8 +1,8 @@
-GRAMMAR SPECIFICATION:
-======================
+ARCANEQUEST LANGUAGE GRAMMAR SPECIFICATION
+==========================================
 
-Program Structure:
-------------------
+PROGRAM STRUCTURE
+-----------------
 Program         → Statement* EOF
 Statement       → Comment | KeywordStmt | Assignment | CompoundAssignment 
                   | ExprStmt | NEWLINE
@@ -10,89 +10,238 @@ KeywordStmt     → ImportStmt | IfStmt | WhileStmt | ForStmt
                   | FunctionDef | ClassDef | OutputStmt | InputStmt
                   | TryExcept | Return | Continue | Break
 
-Comments:
----------
-Comment         → COMMENT
+LEXICAL ELEMENTS
+----------------
+Comment         → '-->' TEXT
 
-Imports:
+KEYWORDS
 --------
+summon          → import statement
+quest           → function definition
+reward          → return statement
+attack          → output/print statement
+scout           → input statement
+spot            → if statement
+counter         → elif clause
+dodge           → else clause
+replay          → while loop
+farm            → for loop
+guild           → class definition
+embark          → try block
+gameOver        → except handler
+savePoint       → finally block
+skipEncounter   → continue statement
+escapeDungeon   → break statement
+
+DATA TYPES
+----------
+potion          → integer type
+elixir          → float type
+fate            → boolean type
+scroll          → string type
+
+LITERALS
+--------
+Number          → INTEGER | FLOAT
+                  INTEGER  → [0-9]+
+                  FLOAT    → [0-9]+ '.' [0-9]+
+String          → STRING_LITERAL
+                  STRING_LITERAL → '"' CHAR* '"' | "'" CHAR* "'"
+Literal         → 'true' | 'false'
+Identifier      → [A-Za-z_][A-Za-z0-9_]*
+
+OPERATORS
+---------
+Arithmetic      → '+' | '-' | '*' | '/' | '//' | '%' | '**'
+Comparison      → '==' | '!=' | '<' | '>' | '<=' | '>='
+Logical         → 'and' | 'or' | 'not'
+Assignment      → '=' | '+=' | '-=' | '*=' | '/=' | '%=' | '**='
+
+PUNCTUATION
+-----------
+Delimiters      → '(' | ')' | '{' | '}' | '[' | ']'
+Separators      → ':' | ',' | '.'
+
+IMPORT STATEMENTS
+-----------------
 ImportStmt      → 'summon' Identifier (',' Identifier)*
 
-Variable Assignment:
+Example:
+  summon random, sys, math
+
+VARIABLE ASSIGNMENT
 -------------------
 Assignment      → Identifier '=' (InputStmt | Expr)
 CompoundAssignment → Identifier CompoundOp Expr
 CompoundOp      → '+=' | '-=' | '*=' | '/=' | '%=' | '**='
 
-Note: '//' is floor division operator, not '//'= compound assignment
+Examples:
+  x = 10
+  name = scout("Enter name: ")
+  count += 1
+  value *= 2
 
-Input/Output:
--------------
+INPUT/OUTPUT STATEMENTS
+-----------------------
 InputStmt       → 'scout' '(' Expr ')'
 OutputStmt      → 'attack' '(' (Expr (',' Expr)*)? ')'
 
-Control Flow - Conditionals:
+Examples:
+  name = scout("What's your name? ")
+  attack("Hello, World!")
+  attack("Score:", score, "Health:", health)
+
+CONTROL FLOW - CONDITIONALS
 ----------------------------
 IfStmt          → 'spot' '(' Expr ')' ':' Block
                   ('counter' '(' Expr ')' ':' Block)*
                   ('dodge' ':' Block)?
 
-Control Flow - Loops:
+Example:
+  spot (health > 50):
+      attack("Healthy!")
+  counter (health > 20):
+      attack("Wounded!")
+  dodge:
+      attack("Critical!")
+
+CONTROL FLOW - LOOPS
 ---------------------
 WhileStmt       → 'replay' '(' Expr ')' ':' Block
 ForStmt         → 'farm' Identifier 'in' Expr ':' Block
 Continue        → 'skipEncounter'
 Break           → 'escapeDungeon'
 
-Functions:
-----------
+Examples:
+  replay (count < 10):
+      attack(count)
+      count += 1
+  
+  farm item in inventory:
+      attack("Found:", item)
+
+FUNCTION DEFINITIONS
+--------------------
 FunctionDef     → 'quest' Identifier '(' ParamList? ')' ':' Block
 ParamList       → Identifier (',' Identifier)*
 Return          → 'reward' Expr
 
-Exception Handling:
+Example:
+  quest greet(name, title):
+      attack("Hello", title, name)
+      reward "Welcome!"
+
+EXCEPTION HANDLING
 ------------------
 TryExcept       → 'embark' ':' Block
                   ('gameOver' Identifier? ':' Block)*
                   ('savePoint' ':' Block)?
 
-Blocks:
--------
+Example:
+  embark:
+      risky_operation()
+  gameOver ValueError:
+      attack("Invalid value!")
+  gameOver:
+      attack("Unknown error!")
+  savePoint:
+      attack("Cleanup complete")
+
+BLOCKS
+------
 Block           → NEWLINE INDENT Statement+ DEDENT
 
-Expressions:
-------------
-Expr            → BinaryExpr
-BinaryExpr      → UnaryExpr (BinOp UnaryExpr)*
-UnaryExpr       → UnaryOp UnaryExpr | PrimaryExpr
-PrimaryExpr     → Number | String | Literal | Identifier | Call | Attribute | '(' Expr ')'
+Note: Indentation must be consistent throughout the program.
+First indent establishes the standard (e.g., 4 spaces).
 
-Binary Operators (by precedence, low to high):
-  1. or
-  2. and
-  3. not  (unary)
-  4. ==, !=, <, >, <=, >=
-  5. +, -
-  6. *, /, //, %
-  7. **
+EXPRESSIONS
+-----------
+Expr            → LogicalOrExpr
 
-Unary Operators:
-  not, +, -
+OPERATOR PRECEDENCE (Low to High)
+----------------------------------
+1. or           → logical OR (lowest precedence)
+2. and          → logical AND
+3. not          → logical NOT (unary)
+4. == != < > <= >=  → comparison operators
+5. + -          → addition, subtraction
+6. * / // %     → multiplication, division, floor division, modulo
+7. **           → exponentiation (highest precedence, right-associative)
 
-Function Calls:
----------------
-Call            → PrimaryExpr '(' ArgList? ')'
+Unary operators: not, +, -
+
+EXPRESSION GRAMMAR
+------------------
+LogicalOrExpr   → LogicalAndExpr ('or' LogicalAndExpr)*
+LogicalAndExpr  → ComparisonExpr ('and' ComparisonExpr)*
+ComparisonExpr  → AddExpr (CompOp AddExpr)*
+                  CompOp → '==' | '!=' | '<' | '>' | '<=' | '>='
+AddExpr         → Term (('+' | '-') Term)*
+Term            → ExponentExpr (('*' | '/' | '//' | '%') ExponentExpr)*
+ExponentExpr    → UnaryExpr ('**' UnaryExpr)*  [right-associative]
+UnaryExpr       → ('not' | '+' | '-') UnaryExpr | PostfixExpr
+PostfixExpr     → PrimaryExpr (CallSuffix | AttributeSuffix)*
+
+PrimaryExpr     → Number | String | Literal | Identifier | Datatype
+                  | '(' Expr ')'
+
+FUNCTION CALLS
+--------------
+CallSuffix      → '(' ArgList? ')'
 ArgList         → Expr (',' Expr)*
 
-Attributes:
------------
-Attribute       → PrimaryExpr ('.' Identifier)+
+Examples:
+  attack("Hello")
+  math.sqrt(16)
+  potion("42")     → type casting
+  player.take_damage(10)
 
-Literals:
----------
-Number          → INTEGER | FLOAT
-String          → STRING_LITERAL
-Literal         → 'true' | 'false'
-Identifier      → IDENTIFIER
+ATTRIBUTE ACCESS
+----------------
+AttributeSuffix → '.' Identifier
 
+Examples:
+  player.health
+  sys.exit
+  object.method.chain
 
+TYPE CASTING
+------------
+Datatypes can be used as casting functions:
+  potion(x)       → cast x to integer
+  elixir(x)       → cast x to float
+  fate(x)         → cast x to boolean
+  scroll(x)       → cast x to string
+
+SEMANTIC RULES
+--------------
+1. Variables must be declared before use (through assignment)
+2. Type checking for operations:
+   - Arithmetic operators require numeric types (potion/elixir)
+   - Logical operators require boolean type (fate)
+   - String concatenation: scroll + scroll
+   - String repetition: scroll * potion or potion * scroll
+3. Condition expressions must evaluate to boolean (fate)
+4. Function parameters have unknown type until runtime
+5. Scoping rules:
+   - Global scope
+   - Function scope
+   - Block scope (if/while/for/try)
+6. Indentation must be consistent (first indent sets standard)
+
+TYPE INFERENCE
+--------------
+- Literals: inferred from literal type
+- Variables: inferred from assigned expression
+- Binary operations: result type based on operand types
+- Function returns: tracked from reward statements
+- Input (scout): always returns scroll type
+- Type casting: explicit type conversion
+
+ERROR RECOVERY
+--------------
+Parser uses panic-mode error recovery:
+- Synchronizes at statement boundaries (NEWLINE, keywords)
+- Continues parsing after errors
+- Reports multiple errors in single pass
+- Provides partial parse tree even with errors
