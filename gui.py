@@ -186,7 +186,7 @@ class ArcaneQuestIDE:
                 result = (f"{error_header}\n"
                          f"{chr(10).join(error_lines)}\n\n"
                          f"{separator}\n"
-                         f"Partial parse tree:\n"
+                         f"Parse tree:\n"
                          f"{separator}\n"
                          f"{tree_str}")
             else:
