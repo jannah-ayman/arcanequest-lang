@@ -58,6 +58,14 @@ class SymbolTable:
         current_scope[name] = IdentifierInfo(name, dtype, line)
         return current_scope[name]
     
+    def update_type(self, name, dtype):
+        """Update the type of an existing variable."""
+        for scope in reversed(self.scopes):
+            if name in scope:
+                scope[name].dtype = dtype
+                return scope[name]
+        return None
+    
     def lookup(self, name):
         """Look up a variable in all scopes (innermost to outermost)."""
         for scope in reversed(self.scopes):
@@ -91,6 +99,9 @@ def datatype_check(t1, t2, operator):
     # Arithmetic operators: +, -, *, /, //, %, **
     if operator in ["+", "-", "*", "/", "//", "%", "**"]:
         if t1 in (DATA_TYPE_INT, DATA_TYPE_DOUBLE) and t2 in (DATA_TYPE_INT, DATA_TYPE_DOUBLE):
+            # Division always returns double/elixir
+            if operator == "/":
+                return DATA_TYPE_DOUBLE
             # If either is double, result is double
             if t1 == DATA_TYPE_DOUBLE or t2 == DATA_TYPE_DOUBLE:
                 return DATA_TYPE_DOUBLE
@@ -360,7 +371,11 @@ def parse_assignment(state):
         
         # SEMANTIC: scout returns string
         node.dtype = DATA_TYPE_STRING
-        state.symbol_table.declare(ident["value"], DATA_TYPE_STRING, ident["lineno"])
+        var_info = state.symbol_table.lookup(ident["value"])
+        if var_info:
+            state.symbol_table.update_type(ident["value"], DATA_TYPE_STRING)
+        else:
+            state.symbol_table.declare(ident["value"], DATA_TYPE_STRING, ident["lineno"])
         return node
     
     # Regular expression assignment
@@ -370,7 +385,13 @@ def parse_assignment(state):
     # SEMANTIC: Infer type from expression
     if expr.dtype:
         node.dtype = expr.dtype
-        state.symbol_table.declare(ident["value"], expr.dtype, ident["lineno"])
+        var_info = state.symbol_table.lookup(ident["value"])
+        if var_info:
+            # Update existing variable type
+            state.symbol_table.update_type(ident["value"], expr.dtype)
+        else:
+            # Declare new variable
+            state.symbol_table.declare(ident["value"], expr.dtype, ident["lineno"])
     else:
         state.semantic_error(f"Cannot determine type for assignment to '{ident['value']}'", ident["lineno"])
     
@@ -413,7 +434,7 @@ def parse_compound_assignment(state):
         else:
             binop.dtype = result_type
             if var_info:
-                var_info.dtype = result_type
+                state.symbol_table.update_type(ident["value"], result_type)
     
     node = Node("Assignment", ident["value"], [binop], ident["lineno"])
     node.dtype = binop.dtype
@@ -574,6 +595,19 @@ def parse_for(state):
     return node
 
 
+def collect_return_type(body_statements):
+    """Collect the return type from a function body by finding return statements."""
+    for stmt in body_statements:
+        if stmt and stmt.type == "Return" and stmt.dtype:
+            return stmt.dtype
+        # Also check in nested structures (if/while/for/try blocks)
+        if stmt and stmt.children:
+            nested_return = collect_return_type(stmt.children)
+            if nested_return:
+                return nested_return
+    return None
+
+
 def parse_function_def(state):
     """Parse function definition: quest name(params): ..."""
     start = state.expect([(TOKEN_KEYWORD, "quest")], "Expected 'quest'")
@@ -607,12 +641,8 @@ def parse_function_def(state):
     
     body = parse_statement_block(state)
     
-    # SEMANTIC: Track return type
-    return_type = None
-    for stmt in body:
-        if stmt and stmt.type == "Return" and stmt.dtype:
-            return_type = stmt.dtype
-            break
+    # SEMANTIC: Track return type by recursively searching all statements
+    return_type = collect_return_type(body)
     
     if name and return_type:
         state.function_return_types[name["value"]] = return_type
@@ -732,7 +762,6 @@ def parse_logical_or(state):
         left = node
     
     return left
-
 
 def parse_logical_and(state):
     """Parse logical AND expression."""

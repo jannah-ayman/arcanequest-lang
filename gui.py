@@ -370,7 +370,7 @@ class ArcaneQuestIDE:
 def main():
     root = tk.Tk()
     app = ArcaneQuestIDE(root)
-    root.geometry("1400x700")
+    root.geometry("1300x600")
     root.minsize(1100, 600)
     root.mainloop()
 
