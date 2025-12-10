@@ -14,11 +14,9 @@ class Node:
         self.dtype = None  # For type inference
 
     def add(self, node):
-        """Add a child node."""
         self.children.append(node)
 
     def pretty(self, indent=0):
-        """Generate indented string representation of the parse tree."""
         pad = "  " * indent
         val = f": {self.value}" if self.value is not None else ""
         lineinfo = f" (line {self.lineno})" if self.lineno else ""
@@ -27,7 +25,6 @@ class Node:
         for c in self.children:
             out += c.pretty(indent + 1)
         return out
-
 
 class IdentifierInfo:
     def __init__(self, name, dtype, line):
@@ -38,28 +35,23 @@ class IdentifierInfo:
     def __repr__(self):
         return f"IdentifierInfo({self.name}, {self.dtype}, line {self.line})"
 
-
 class SymbolTable:
     def __init__(self):
         self.scopes = [{}]  # Start with global scope
     
     def push_scope(self):
-        """Create a new scope (enter block)."""
         self.scopes.append({})
     
     def pop_scope(self):
-        """Exit current scope."""
         if len(self.scopes) > 1:
             self.scopes.pop()
     
     def declare(self, name, dtype, line):
-        """Declare a variable in the current scope."""
         current_scope = self.scopes[-1]
         current_scope[name] = IdentifierInfo(name, dtype, line)
         return current_scope[name]
     
     def update_type(self, name, dtype):
-        """Update the type of an existing variable."""
         for scope in reversed(self.scopes):
             if name in scope:
                 scope[name].dtype = dtype
@@ -67,7 +59,6 @@ class SymbolTable:
         return None
     
     def lookup(self, name):
-        """Look up a variable in all scopes (innermost to outermost)."""
         for scope in reversed(self.scopes):
             if name in scope:
                 return scope[name]
@@ -75,58 +66,42 @@ class SymbolTable:
 
 
 def datatype_check(t1, t2, operator):
-    """Check if an operation between two types is valid and return result type."""
-    # Allow operations with unknown types (function parameters)
     if t1 == "unknown" or t2 == "unknown":
-        if operator in ["+", "-", "*", "/", "//", "%", "**"]:
-            return DATA_TYPE_DOUBLE
-        elif operator in ["<", ">", "<=", ">=", "==", "!="]:
-            return DATA_TYPE_BOOL
-        elif operator in ["and", "or"]:
-            return DATA_TYPE_BOOL
         return "unknown"
 
-    # String concatenation
     if operator == "+" and t1 == DATA_TYPE_STRING and t2 == DATA_TYPE_STRING:
         return DATA_TYPE_STRING
     
-    # String repetition: "hello" * 3 or 3 * "hello"
     if operator == "*":
         if (t1 == DATA_TYPE_STRING and t2 == DATA_TYPE_INT) or \
            (t1 == DATA_TYPE_INT and t2 == DATA_TYPE_STRING):
             return DATA_TYPE_STRING
     
-    # Arithmetic operators: +, -, *, /, //, %, **
     if operator in ["+", "-", "*", "/", "//", "%", "**"]:
         if t1 in (DATA_TYPE_INT, DATA_TYPE_DOUBLE) and t2 in (DATA_TYPE_INT, DATA_TYPE_DOUBLE):
-            # Division always returns double/elixir
             if operator == "/":
                 return DATA_TYPE_DOUBLE
-            # If either is double, result is double
             if t1 == DATA_TYPE_DOUBLE or t2 == DATA_TYPE_DOUBLE:
                 return DATA_TYPE_DOUBLE
             return DATA_TYPE_INT
-        return None  # Invalid
+        return None
     
-    # Comparison operators: <, >, <=, >=
     if operator in ["<", ">", "<=", ">="]:
         if t1 in (DATA_TYPE_INT, DATA_TYPE_DOUBLE) and t2 in (DATA_TYPE_INT, DATA_TYPE_DOUBLE):
             return DATA_TYPE_BOOL
-        return None  # Invalid
+        return None 
     
-    # Equality operators: ==, !=
     if operator in ["==", "!="]:
         if t1 == t2:
             return DATA_TYPE_BOOL
-        return None  # Invalid
+        return None 
     
-    # Logical operators: and, or
     if operator in ["and", "or"]:
         if t1 == DATA_TYPE_BOOL and t2 == DATA_TYPE_BOOL:
             return DATA_TYPE_BOOL
-        return None  # Invalid
+        return None
     
-    return None  # Unknown operator or invalid combination
+    return None 
 
 
 class ParserState:
@@ -135,6 +110,9 @@ class ParserState:
         self.i = 0
         self.errors = []
         self.panic_mode = False
+        self.function_bodies = {} 
+        self.function_params = {}  
+
         # Semantic analysis components
         self.symbol_table = SymbolTable()
         self.function_return_types = {}
@@ -144,7 +122,7 @@ class ParserState:
         return self.tokens[self.i] if self.i < len(self.tokens) else make_token(TOKEN_EOF, "EOF", -1, -1)
 
     def peek(self, offset=1):
-        """Look ahead at a token without advancing."""
+        #Look ahead at a token without advancing"""
         j = self.i + offset
         return self.tokens[j] if j < len(self.tokens) else make_token(TOKEN_EOF, "EOF", -1, -1)
 
@@ -209,7 +187,7 @@ class ParserState:
 
 
 def parse(tokens):
-    """Main parse function - returns AST root and list of errors."""
+    """Main parse function - returns ST root and list of errors."""
     state = ParserState(tokens)
     root = Node("Program", lineno=1)
     
@@ -607,6 +585,94 @@ def collect_return_type(body_statements):
                 return nested_return
     return None
 
+def infer_function_return_type(state, func_name, arg_types):
+    """Infer return type by re-analyzing function body with concrete argument types."""
+    if func_name not in state.function_bodies:
+        return "unknown"
+    params = state.function_params.get(func_name, [])
+    body = state.function_bodies[func_name]
+    if len(arg_types) != len(params):
+        return "unknown"
+    
+    # Save and create temporary symbol table
+    saved_scopes = state.symbol_table.scopes
+    state.symbol_table.scopes = [{}]
+    
+    # Declare parameters with concrete types
+    for param_name, arg_type in zip(params, arg_types):
+        state.symbol_table.declare(param_name, arg_type, -1)
+    
+    # Re-infer types in function body
+    inferred_return = infer_types_in_statements(state, body)
+    
+    # Restore original symbol table
+    state.symbol_table.scopes = saved_scopes
+    return inferred_return if inferred_return else "unknown"
+
+
+def infer_types_in_statements(state, statements):
+    """Recursively infer types, looking for return statements."""
+    for stmt in statements:
+        if not stmt:
+            continue
+        
+        # Handle assignments to update variable types
+        if stmt.type == "Assignment" and stmt.children:
+            expr = stmt.children[0]
+            infer_expr_type(state, expr)
+            if expr.dtype and expr.dtype != "unknown":
+                # Update the variable type in symbol table - but prioritize elixir over potion
+                var_info = state.symbol_table.lookup(stmt.value)
+                if var_info:
+                    # If variable already exists, update only if new type is "better" (elixir > potion)
+                    if var_info.dtype == DATA_TYPE_INT and expr.dtype == DATA_TYPE_DOUBLE:
+                        state.symbol_table.update_type(stmt.value, expr.dtype)
+                    elif var_info.dtype != DATA_TYPE_DOUBLE:
+                        state.symbol_table.update_type(stmt.value, expr.dtype)
+                else:
+                    state.symbol_table.declare(stmt.value, expr.dtype, stmt.lineno)
+        
+        if stmt.type == "Return" and stmt.children:
+            return_expr = stmt.children[0]
+            infer_expr_type(state, return_expr)
+            if return_expr.dtype and return_expr.dtype != "unknown":
+                return return_expr.dtype
+        elif stmt.type in ("If", "While", "For", "Try"):
+            for child in stmt.children:
+                if child and child.children:
+                    result = infer_types_in_statements(state, child.children)
+                    if result and result != "unknown":
+                        return result
+    return None
+
+
+def infer_expr_type(state, expr):
+    """Re-infer expression type with current symbol table."""
+    if not expr:
+        return
+    if expr.type == "Identifier":
+        var_info = state.symbol_table.lookup(expr.value)
+        if var_info:
+            expr.dtype = var_info.dtype
+    elif expr.type == "BinaryOp":
+        if len(expr.children) >= 2:
+            infer_expr_type(state, expr.children[0])
+            infer_expr_type(state, expr.children[1])
+            left_type = expr.children[0].dtype
+            right_type = expr.children[1].dtype
+            if left_type and right_type:
+                result_type = datatype_check(left_type, right_type, expr.value)
+                if result_type:
+                    expr.dtype = result_type
+    elif expr.type == "UnaryOp":
+        if expr.children:
+            infer_expr_type(state, expr.children[0])
+            operand_type = expr.children[0].dtype
+            if operand_type:
+                if expr.value == "not" and operand_type == DATA_TYPE_BOOL:
+                    expr.dtype = DATA_TYPE_BOOL
+                elif expr.value in ("+", "-") and operand_type in (DATA_TYPE_INT, DATA_TYPE_DOUBLE):
+                    expr.dtype = operand_type
 
 def parse_function_def(state):
     """Parse function definition: quest name(params): ..."""
@@ -641,12 +707,26 @@ def parse_function_def(state):
     
     body = parse_statement_block(state)
     
+    if name:
+        state.function_params[name["value"]] = params
+        state.function_bodies[name["value"]] = body
+
+    # SEMANTIC: Infer types in function body first
+    for stmt in body:
+        if stmt and stmt.type == "Assignment" and stmt.children:
+            expr = stmt.children[0]
+            infer_expr_type(state, expr)
+            if expr.dtype and expr.dtype != "unknown":
+                state.symbol_table.update_type(stmt.value, expr.dtype)
+        elif stmt and stmt.type == "Return" and stmt.children:
+            # Also infer type for return expressions
+            infer_expr_type(state, stmt.children[0])
+
     # SEMANTIC: Track return type by recursively searching all statements
     return_type = collect_return_type(body)
-    
+
     if name and return_type:
         state.function_return_types[name["value"]] = return_type
-    
     state.symbol_table.pop_scope()
     
     node.add(Node("Params", None, [Node("Param", pname, [], None) for pname in params]))
@@ -1037,7 +1117,17 @@ def parse_call_with_target(state, target_node):
         # Type casting functions
         if func_name in (DATA_TYPE_INT, DATA_TYPE_DOUBLE, DATA_TYPE_STRING, DATA_TYPE_BOOL):
             call_node.dtype = func_name
-        # User-defined functions
+        # User-defined functions - infer type based on actual arguments
+        elif func_name in state.function_bodies:
+            arg_types = [arg.dtype for arg in args]
+            # Only infer if all argument types are known
+            if all(t and t != "unknown" for t in arg_types):
+                inferred_type = infer_function_return_type(state, func_name, arg_types)
+                call_node.dtype = inferred_type
+            else:
+                # If we can't infer, check if we have a cached return type
+                call_node.dtype = state.function_return_types.get(func_name, "unknown")
+        # Known function with cached return type
         elif func_name in state.function_return_types:
             call_node.dtype = state.function_return_types[func_name]
         else:
