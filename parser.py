@@ -64,7 +64,6 @@ class SymbolTable:
                 return scope[name]
         return None
 
-
 def datatype_check(t1, t2, operator):
     if t1 == "unknown" or t2 == "unknown":
         return "unknown"
@@ -103,7 +102,6 @@ def datatype_check(t1, t2, operator):
     
     return None 
 
-
 class ParserState:
     def __init__(self, tokens):
         self.tokens = tokens
@@ -112,35 +110,33 @@ class ParserState:
         self.panic_mode = False
         self.function_bodies = {} 
         self.function_params = {}  
-
-        # Semantic analysis components
-        self.symbol_table = SymbolTable()
         self.function_return_types = {}
+        self.symbol_table = SymbolTable()
 
     def current(self):
-        """Get the current token without advancing."""
+        #Get the current token without advancing.
         return self.tokens[self.i] if self.i < len(self.tokens) else make_token(TOKEN_EOF, "EOF", -1, -1)
 
     def peek(self, offset=1):
-        #Look ahead at a token without advancing"""
+        #Look ahead at a token without advancing
         j = self.i + offset
         return self.tokens[j] if j < len(self.tokens) else make_token(TOKEN_EOF, "EOF", -1, -1)
 
     def advance(self):
-        """Consume and return the current token."""
+        #Consume and return the current token.
         tok = self.current()
         self.i += 1
         self.panic_mode = False
         return tok
 
     def match(self, ttype=None, value=None):
-        """Check if current token matches criteria."""
+        #Check if current token matches criteria.
         cur = self.current()
         return (ttype is None or cur["type"] == ttype) and \
                (value is None or cur["value"] == value)
 
     def expect(self, expected_pairs, msg=None):
-        """Consume a token if it matches expected type/value pairs."""
+        #Consume a token if it matches expected type/value pairs
         cur = self.current()
         for (t, v) in expected_pairs:
             if cur["type"] == t and (v is None or cur["value"] == v):
@@ -150,18 +146,18 @@ class ParserState:
         return None
 
     def error(self, msg, lineno=None):
-        """Record a parse error."""
+        #Record a parse error
         ln = lineno if lineno is not None else self.current().get("lineno", -1)
         self.errors.append((ln, msg))
         self.panic_mode = True
 
     def semantic_error(self, msg, lineno=None):
-        """Record a semantic error without entering panic mode."""
+        #Record a semantic error without entering panic mode
         ln = lineno if lineno is not None else self.current().get("lineno", -1)
         self.errors.append((ln, f"Semantic: {msg}"))
 
     def synchronize(self):
-        """Skip tokens until we find a safe synchronization point."""
+        #Skip tokens until we find a safe synchronization point
         if not self.panic_mode:
             return
         
@@ -185,9 +181,8 @@ class ParserState:
         
         self.panic_mode = False
 
-
 def parse(tokens):
-    """Main parse function - returns ST root and list of errors."""
+    # returns ST root and list of errors.
     state = ParserState(tokens)
     root = Node("Program", lineno=1)
     
@@ -200,9 +195,8 @@ def parse(tokens):
     
     return root, state.errors
 
-
 def parse_statement_list(state, stop_on=(TOKEN_EOF, TOKEN_DEDENT)):
-    """Parse a sequence of statements until a stopping token."""
+    #Parse a sequence of statements until a stopping token
     stmts = []
     
     # Skip leading blank lines
@@ -228,7 +222,6 @@ def parse_statement_list(state, stop_on=(TOKEN_EOF, TOKEN_DEDENT)):
     
     return stmts
 
-
 KEYWORD_PARSERS = {
     "summon": lambda s: parse_import(s),
     "spot": lambda s: parse_if(s),
@@ -243,9 +236,8 @@ KEYWORD_PARSERS = {
     "escapeDungeon": lambda s: Node("Break", None, [], s.advance()["lineno"]),
 }
 
-
 def parse_statement(state):
-    """Parse a single statement."""
+    #Parse a single statement
     cur = state.current()
     
     # Comment
@@ -279,8 +271,7 @@ def parse_statement(state):
         
         if next_tok["type"] == TOKEN_PUNCT and next_tok["value"] == "=":
             return parse_assignment(state)
-        elif next_tok["type"] == TOKEN_OPERATOR and \
-             next_tok["value"] in ("+=", "-=", "*=", "/=", "%=", "**="):
+        elif next_tok["type"] == TOKEN_OPERATOR and next_tok["value"] in ("+=", "-=", "*=", "/=", "%=", "**="):
             return parse_compound_assignment(state)
         elif next_tok["type"] == TOKEN_PUNCT and next_tok["value"] in ("(", "."):
             expr = parse_expr(state)
@@ -300,9 +291,8 @@ def parse_statement(state):
     state.advance()
     return None
 
-
 def parse_import(state):
-    """Parse import statement: summon module1, module2, ..."""
+    #Parse import statement: summon module1, module2, ...
     tok = state.expect([(TOKEN_KEYWORD, "summon")], "Expected 'summon' for import")
     if tok is None:
         return Node("Import", None, [], state.current().get("lineno"))
@@ -333,9 +323,8 @@ def parse_import(state):
     
     return node
 
-
 def parse_assignment(state):
-    """Parse assignment: identifier = expr"""
+    #Parse assignment: identifier = expr
     ident = state.expect([(TOKEN_IDENTIFIER, None)], "Expected identifier in assignment")
     if ident is None:
         return Node("Assignment", None, [], state.current().get("lineno"))
@@ -375,9 +364,8 @@ def parse_assignment(state):
     
     return node
 
-
 def parse_compound_assignment(state):
-    """Parse compound assignment: identifier += expr"""
+    #Parse compound assignment: identifier += expr
     ident = state.expect([(TOKEN_IDENTIFIER, None)], "Expected identifier")
     if ident is None:
         return Node("Assignment", None, [], state.current().get("lineno"))
@@ -418,9 +406,8 @@ def parse_compound_assignment(state):
     node.dtype = binop.dtype
     return node
 
-
 def parse_input_stmt(state):
-    """Parse input statement: scout(prompt)"""
+    #Parse input statement: scout(prompt
     start = state.expect([(TOKEN_KEYWORD, "scout")], "Expected 'scout'")
     if start is None:
         return Node("Input", None, [], state.current().get("lineno"))
@@ -434,9 +421,8 @@ def parse_input_stmt(state):
     node.dtype = DATA_TYPE_STRING
     return node
 
-
 def parse_output_stmt(state):
-    """Parse output statement: attack(expr, expr, ...)"""
+    #Parse output statement: attack(expr, expr, ...)
     start = state.expect([(TOKEN_KEYWORD, "attack")], "Expected 'attack'")
     if start is None:
         return Node("Output", None, [], state.current().get("lineno"))
@@ -454,9 +440,8 @@ def parse_output_stmt(state):
     state.expect([(TOKEN_PUNCT, ")")], "Expected ')' after attack arguments")
     return node
 
-
 def parse_condition(state):
-    """Parse a condition in parentheses."""
+    #Parse a condition in parentheses
     state.expect([(TOKEN_PUNCT, "(")], "Expected '(' before condition")
     cond = parse_expr(state)
     state.expect([(TOKEN_PUNCT, ")")], "Expected ')' after condition")
@@ -467,9 +452,8 @@ def parse_condition(state):
     
     return cond
 
-
 def parse_if(state):
-    """Parse if statement: spot (cond): ... counter (cond): ... dodge: ..."""
+    #Parse if statement: spot (cond): ... counter (cond): ... dodge: ...
     start = state.expect([(TOKEN_KEYWORD, "spot")], "Expected 'spot'")
     if start is None:
         return Node("If", None, [], state.current().get("lineno"))
@@ -515,9 +499,8 @@ def parse_if(state):
     
     return node
 
-
 def parse_while(state):
-    """Parse while loop: replay (cond): ..."""
+    #Parse while loop: replay (cond): ...
     start = state.expect([(TOKEN_KEYWORD, "replay")], "Expected 'replay'")
     if start is None:
         return Node("While", None, [], state.current().get("lineno"))
@@ -537,9 +520,8 @@ def parse_while(state):
     
     return node
 
-
 def parse_for(state):
-    """Parse for loop: farm var in iterable: ..."""
+    #Parse for loop: farm var in iterable: ...
     start = state.expect([(TOKEN_KEYWORD, "farm")], "Expected 'farm'")
     if start is None:
         return Node("For", None, [], state.current().get("lineno"))
@@ -563,7 +545,7 @@ def parse_for(state):
     # SEMANTIC: Enter new scope and declare loop variable
     state.symbol_table.push_scope()
     if var:
-        state.symbol_table.declare(var["value"], DATA_TYPE_STRING, var["lineno"])
+        state.symbol_table.declare(var["value"], DATA_TYPE_INT, var["lineno"])
     
     body = parse_statement_block(state)
     state.symbol_table.pop_scope()
@@ -571,7 +553,6 @@ def parse_for(state):
     node.add(Node("Body", None, body))
     
     return node
-
 
 def collect_return_type(body_statements):
     """Collect the return type from a function body by finding return statements."""
@@ -609,7 +590,6 @@ def infer_function_return_type(state, func_name, arg_types):
     state.symbol_table.scopes = saved_scopes
     return inferred_return if inferred_return else "unknown"
 
-
 def infer_types_in_statements(state, statements):
     """Recursively infer types, looking for return statements."""
     for stmt in statements:
@@ -621,7 +601,6 @@ def infer_types_in_statements(state, statements):
             expr = stmt.children[0]
             infer_expr_type(state, expr)
             if expr.dtype and expr.dtype != "unknown":
-                # Update the variable type in symbol table - but prioritize elixir over potion
                 var_info = state.symbol_table.lookup(stmt.value)
                 if var_info:
                     # If variable already exists, update only if new type is "better" (elixir > potion)
@@ -644,7 +623,6 @@ def infer_types_in_statements(state, statements):
                     if result and result != "unknown":
                         return result
     return None
-
 
 def infer_expr_type(state, expr):
     """Re-infer expression type with current symbol table."""
@@ -734,7 +712,6 @@ def parse_function_def(state):
     
     return node
 
-
 def parse_return(state):
     """Parse return statement: reward expr"""
     start = state.expect([(TOKEN_KEYWORD, "reward")], "Expected 'reward'")
@@ -749,7 +726,6 @@ def parse_return(state):
         node.dtype = expr.dtype
     
     return node
-
 
 def parse_try_except(state):
     """Parse try-except: embark: ... gameOver: ... savePoint: ..."""
@@ -791,7 +767,6 @@ def parse_try_except(state):
     
     return node
 
-
 def parse_statement_block(state):
     """Parse an indented block of statements."""
     if not state.match(TOKEN_NEWLINE):
@@ -816,7 +791,6 @@ def parse_statement_block(state):
 def parse_expr(state):
     """Parse expression - top level (logical OR)."""
     return parse_logical_or(state)
-
 
 def parse_logical_or(state):
     """Parse logical OR expression."""
@@ -868,7 +842,6 @@ def parse_logical_and(state):
     
     return left
 
-
 def parse_comparison(state):
     """Parse comparison expression."""
     left = parse_add_expr(state)
@@ -895,7 +868,6 @@ def parse_comparison(state):
     
     return left
 
-
 def parse_add_expr(state):
     """Parse addition/subtraction expression."""
     left = parse_term(state)
@@ -921,9 +893,8 @@ def parse_add_expr(state):
     
     return left
 
-
 def parse_term(state):
-    """Parse multiplication/division/modulo expression."""
+    #Parse multiplication/division/modulo expression
     left = parse_exponent(state)
     
     while (state.match(TOKEN_PUNCT) and state.current()["value"] in ("*", "/", "%")) or \
@@ -947,7 +918,6 @@ def parse_term(state):
         left = node
     
     return left
-
 
 def parse_exponent(state):
     """Parse exponentiation expression (right-associative)."""
@@ -973,7 +943,6 @@ def parse_exponent(state):
         return node
     
     return left
-
 
 def parse_unary(state):
     """Parse unary expression."""
@@ -1008,9 +977,8 @@ def parse_unary(state):
     
     return parse_factor(state)
 
-
 def parse_factor(state):
-    """Parse primary expressions: literals, identifiers, calls, attributes."""
+    #Parse primary expressions: literals, identifiers, calls, attributes
     cur = state.current()
     
     # Literals: numbers, strings, booleans
@@ -1069,7 +1037,6 @@ def parse_factor(state):
     state.advance()
     return Node("Empty", None, [], cur.get("lineno", -1))
 
-
 def parse_postfix_ops(state, node):
     """Parse postfix operations: attribute access and function calls."""
     while True:
@@ -1093,9 +1060,8 @@ def parse_postfix_ops(state, node):
     
     return node
 
-
 def parse_call_with_target(state, target_node):
-    """Parse function call with target."""
+    #Parse function call with target
     lpar = state.expect([(TOKEN_PUNCT, "(")], "Expected '(' for function call")
     args = []
     

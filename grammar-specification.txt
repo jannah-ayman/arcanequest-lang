@@ -217,26 +217,67 @@ SEMANTIC RULES
 --------------
 1. Variables must be declared before use (through assignment)
 2. Type checking for operations:
-   - Arithmetic operators require numeric types (potion/elixir)
-   - Logical operators require boolean type (fate)
-   - String concatenation: scroll + scroll
-   - String repetition: scroll * potion or potion * scroll
-3. Condition expressions must evaluate to boolean (fate)
-4. Function parameters have unknown type until runtime
-5. Scoping rules:
+   - Arithmetic operators (+, -, *, /, //, %, **) require numeric types (potion/elixir)
+   - Result of division (/) is always elixir (float)
+   - Mixed potion and elixir operations return elixir
+   - Logical operators (and, or) require boolean type (fate)
+   - not operator requires boolean operand
+   - Comparison operators (<, >, <=, >=) require numeric operands, return fate
+   - Equality operators (==, !=) require same types, return fate
+   - String concatenation: scroll + scroll → scroll
+   - String repetition: scroll * potion or potion * scroll → scroll
+3. Condition expressions (in spot, counter, replay) must evaluate to boolean (fate)
+4. Function return types are inferred from reward statements
+5. Function parameters have types inferred from context
+6. Scoping rules:
    - Global scope
-   - Function scope
-   - Block scope (if/while/for/try)
-6. Indentation must be consistent (first indent sets standard)
+   - Function scope (new scope for each function)
+   - Block scope (new scope for if/while/for/try blocks)
+7. Indentation must be consistent (first indent sets standard)
+8. Compound assignments (+=, -=, etc.) require variable to be declared
+9. Input (scout) always returns scroll type
 
-TYPE INFERENCE
---------------
-- Literals: inferred from literal type
+TYPE INFERENCE SYSTEM
+--------------------
+- Literals: 
+  * Integer numbers → potion
+  * Float numbers → elixir
+  * Strings → scroll
+  * true/false → fate
+  
 - Variables: inferred from assigned expression
-- Binary operations: result type based on operand types
-- Function returns: tracked from reward statements
-- Input (scout): always returns scroll type
-- Type casting: explicit type conversion
+
+- Binary operations:
+  * Arithmetic (+, -, *, /, //, %, **):
+    - potion op potion → potion (except / → elixir)
+    - elixir op numeric → elixir
+    - numeric op elixir → elixir
+    - scroll + scroll → scroll
+    - scroll * potion → scroll
+    - potion * scroll → scroll
+  * Comparison (<, >, <=, >=):
+    - numeric op numeric → fate
+  * Equality (==, !=):
+    - same_type op same_type → fate
+  * Logical (and, or):
+    - fate op fate → fate
+
+- Unary operations:
+  * not fate → fate
+  * +/- numeric → numeric (preserves type)
+
+- Function calls:
+  * Type casting functions (potion, elixir, fate, scroll) → respective type
+  * User functions → inferred from reward statements in function body
+  * Unknown functions → unknown type
+
+- Input statements:
+  * scout(...) → scroll
+
+- Symbol table:
+  * Tracks variables and their types across scopes
+  * Supports nested scopes with proper lookup
+  * Updates types on reassignment
 
 ERROR RECOVERY
 --------------
@@ -245,3 +286,27 @@ Parser uses panic-mode error recovery:
 - Continues parsing after errors
 - Reports multiple errors in single pass
 - Provides partial parse tree even with errors
+- Separates parse errors from semantic errors
+
+ERROR TYPES
+-----------
+Parse Errors:
+- Syntax errors (missing punctuation, unexpected tokens)
+- Invalid statement structure
+- Indentation errors
+
+Semantic Errors:
+- Type mismatches in operations
+- Undeclared variables
+- Non-boolean conditions
+- Invalid type conversions
+- Cannot determine type for expressions
+
+IMPLEMENTATION NOTES
+-------------------
+- Scanner performs lexical analysis with indentation tracking
+- Parser builds Abstract Syntax Tree (AST) with type annotations
+- Symbol table maintains variable/function declarations
+- Type inference performed during parsing
+- Function return types inferred by analyzing function bodies
+- Supports forward type inference for function calls with known argument types
