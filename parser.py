@@ -6,10 +6,12 @@ DATA_TYPE_STRING = "scroll"
 DATA_TYPE_BOOL = "fate"
 
 class Node:
-    def __init__(self, ntype, value=None, children=None, lineno=None):
+    def __init__(self, ntype, value=None, 
+                 children=None, lineno=None):
         self.type = ntype
         self.value = value
-        self.children = children if children is not None else []
+        self.children = children \
+            if children is not None else []
         self.lineno = lineno
         self.dtype = None  # For type inference
 
@@ -94,12 +96,10 @@ def datatype_check(t1, t2, operator):
         if t1 == t2:
             return DATA_TYPE_BOOL
         return None 
-    
     if operator in ["and", "or"]:
         if t1 == DATA_TYPE_BOOL and t2 == DATA_TYPE_BOOL:
             return DATA_TYPE_BOOL
         return None
-    
     return None 
 
 class ParserState:
@@ -468,7 +468,8 @@ def parse_if(state):
     then_block = parse_statement_block(state)
     state.symbol_table.pop_scope()
     
-    node.add(Node("Condition", None, [cond], cond.lineno if hasattr(cond, 'lineno') else start["lineno"]))
+    node.add(Node("Condition", None, [cond], cond.lineno 
+                  if hasattr(cond, 'lineno') else start["lineno"]))
     node.add(Node("Then", None, then_block, start["lineno"]))
 
     # Parse elif clauses

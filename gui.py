@@ -324,7 +324,7 @@ class ArcaneQuestIDE:
                          f"{separator}\n"
                          f"{tree_str}")
             else:
-                result = f"✅ Quest compiled successfully!\n\nParse tree with enchantments:\n\n{tree_str}"
+                result = f"✅ Quest compiled successfully!\n\nParse tree:\n\n{tree_str}"
             
             self._display_output(self.parse_output, result)
             

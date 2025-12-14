@@ -20,6 +20,14 @@ KEYWORDS = {
     "escapeDungeon",   # break
 }
 
+# Single-character punctuation and operators
+SINGLE_CHAR_PUNCT = {
+    "(", ")", "{", "}", "[", "]",  # delimiters
+    ":", ",", ".",                  # separators
+    "+", "-", "*", "/", "%",        # arithmetic
+    "<", ">", "=",                  # comparison/assignment
+}
+
 # Data types (can also be used as casting functions)
 DATATYPES = {"potion", "elixir", "fate", "scroll"}
 
@@ -35,14 +43,6 @@ MULTI_CHAR_OPS = {
     "<=", ">=", "==", "!=",  # comparison
     "+=", "-=", "*=", "/=", "%=",  # compound assignment
     "//",   # floor division (comment in tokenizer)
-}
-
-# Single-character punctuation and operators
-SINGLE_CHAR_PUNCT = {
-    "(", ")", "{", "}", "[", "]",  # delimiters
-    ":", ",", ".",                  # separators
-    "+", "-", "*", "/", "%",        # arithmetic
-    "<", ">", "=",                  # comparison/assignment
 }
 
 # Token type constants
@@ -62,11 +62,11 @@ TOKEN_PUNCT = "PUNCT"
 TOKEN_UNKNOWN = "UNKNOWN"
 
 # REGEX PATTERNS
-_RE_NUMBER = re.compile(r"^\d+(?:\.\d+)?")  # integer or float
-_RE_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*")  # variable names
-_RE_STRING_DOUBLE = re.compile(r'^"(?:[^"\\]|\\.)*"')  # double-quoted strings
-_RE_STRING_SINGLE = re.compile(r"^'(?:[^'\\]|\\.)*'")  # single-quoted strings
-_RE_WS = re.compile(r"^[ \t]+")  # whitespace (spaces and tabs)
+_RE_NUMBER = re.compile(r"^\d+(?:\.\d+)?")  
+_RE_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*") 
+_RE_STRING_DOUBLE = re.compile(r'^"(?:[^"\\]|\\.)*"') 
+_RE_STRING_SINGLE = re.compile(r"^'(?:[^'\\]|\\.)*'") 
+_RE_WS = re.compile(r"^[ \t]+") 
 
 
 # HELPER FUNCTIONS
